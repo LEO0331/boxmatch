@@ -1,5 +1,7 @@
 # Boxmatch
 
+![Coverage Gate](https://img.shields.io/badge/Coverage%20Gate-80%25%20minimum-blue)
+
 Boxmatch is a lightweight surplus-food matching app for exhibitions.
 Enterprises can post leftover lunchboxes or drinks, and nearby users can reserve for pickup.
 
@@ -72,6 +74,12 @@ CSV files are generated under `/Users/Leo/Documents/boxmatch/reports`.
 flutter analyze
 flutter test
 ```
+
+### Coverage Gate Rule
+
+- CI workflow: `.github/workflows/flutter-ci.yml`
+- Rule: overall coverage is calculated from `coverage/lcov.info`.
+- Fail condition: CI fails when overall coverage is **below 80%**.
 
 ## Release Smoke + Gate
 

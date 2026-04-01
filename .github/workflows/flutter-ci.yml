@@ -1,0 +1,50 @@
+name: Flutter CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  test-and-coverage:
+    runs-on: ubuntu-latest
+    env:
+      COVERAGE_THRESHOLD: "80.0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Run tests with coverage
+        run: flutter test --coverage
+
+      - name: Enforce coverage threshold
+        run: |
+          COVERAGE=$(awk -F: '
+            /^LF:/ { lf += $2 }
+            /^LH:/ { lh += $2 }
+            END {
+              if (lf == 0) {
+                printf "0.00"
+              } else {
+                printf "%.2f", (lh / lf) * 100
+              }
+            }
+          ' coverage/lcov.info)
+
+          echo "Overall coverage: ${COVERAGE}%"
+          echo "Threshold: ${COVERAGE_THRESHOLD}%"
+
+          awk -v c="$COVERAGE" -v t="$COVERAGE_THRESHOLD" 'BEGIN { exit (c + 0 < t + 0) ? 1 : 0 }'
+
