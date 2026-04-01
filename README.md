@@ -56,6 +56,24 @@ Set your API URL when building/running Flutter:
 flutter run --dart-define=BOXMATCH_API_BASE_URL=https://<your-render-service>.onrender.com
 ```
 
+## GitHub Pages (Auto Deploy)
+
+Web app deploy is automated by:
+
+- `.github/workflows/deploy-pages.yml`
+
+On every push to `main`, CI builds Flutter web and deploys to GitHub Pages.
+
+One-time setup in GitHub:
+
+1. Repo `Settings` -> `Pages`
+2. `Build and deployment` -> `Source` = `GitHub Actions`
+3. (Optional) add repo secret `BOXMATCH_API_BASE_URL` if you want a non-default API URL in web build
+
+Expected URL:
+
+- `https://LEO0331.github.io/boxmatch/`
+
 ### KPI Export (weekly/monthly report)
 
 From repo root:
