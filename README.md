@@ -1,6 +1,7 @@
 # Boxmatch
 
 ![Coverage Gate](https://img.shields.io/badge/Coverage%20Gate-80%25%20minimum-blue)
+[![Pages Deploy](https://github.com/LEO0331/boxmatch/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/LEO0331/boxmatch/actions/workflows/deploy-pages.yml)
 
 Boxmatch is a lightweight surplus-food matching app for exhibitions.
 Enterprises can post leftover lunchboxes or drinks, and nearby users can reserve for pickup.
