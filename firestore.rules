@@ -12,12 +12,8 @@ service cloud.firestore {
 
     match /listings/{listingId} {
       allow read: if true;
-      allow create: if request.resource.data.quantityTotal is int
-                    && request.resource.data.quantityTotal > 0
-                    && request.resource.data.quantityRemaining == request.resource.data.quantityTotal
-                    && request.resource.data.editTokenHash is string
-                    && request.resource.data.editTokenHash.size() > 0;
-      allow update: if request.resource.data.editTokenHash == resource.data.editTokenHash;
+      // Listing writes are server-side only via Firebase Admin SDK.
+      allow create, update, delete: if false;
     }
 
     match /reservations/{reservationId} {
@@ -30,7 +26,8 @@ service cloud.firestore {
     }
 
     match /abuse_signals/{signalId} {
-      allow create: if true;
+      // Abuse signals are server-side only.
+      allow create: if false;
       allow read, update, delete: if false;
     }
   }

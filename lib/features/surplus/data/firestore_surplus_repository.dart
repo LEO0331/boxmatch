@@ -1,7 +1,9 @@
+import 'dart:convert';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:http/http.dart' as http;
 
 import '../../../core/utils/id_utils.dart';
-import '../../../core/utils/token_utils.dart';
 import '../domain/listing.dart';
 import '../domain/listing_input.dart';
 import '../domain/reservation.dart';
@@ -11,9 +13,16 @@ import 'seed_venues.dart';
 import 'surplus_repository.dart';
 
 class FirestoreSurplusRepository implements SurplusRepository {
-  FirestoreSurplusRepository(this._firestore);
+  FirestoreSurplusRepository(
+    this._firestore, {
+    required String apiBaseUrl,
+    http.Client? httpClient,
+  }) : _apiBaseUrl = apiBaseUrl,
+       _http = httpClient ?? http.Client();
 
   final FirebaseFirestore _firestore;
+  final String _apiBaseUrl;
+  final http.Client _http;
 
   CollectionReference<Map<String, dynamic>> get _venuesRef =>
       _firestore.collection('venues');
@@ -96,18 +105,13 @@ class FirestoreSurplusRepository implements SurplusRepository {
     if (!isAllowed) {
       throw const PermissionDeniedException('Invalid edit token.');
     }
-
-    yield* _reservationsRef
-        .where('listingId', isEqualTo: listingId)
-        .snapshots()
-        .map((snapshot) {
-          final reservations =
-              snapshot.docs
-                  .map((doc) => Reservation.fromMap(doc.data(), id: doc.id))
-                  .toList()
-                ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-          return reservations;
-        });
+    while (true) {
+      yield await _fetchEnterpriseReservations(
+        listingId: listingId,
+        token: token,
+      );
+      await Future<void>.delayed(const Duration(seconds: 8));
+    }
   }
 
   @override
@@ -115,50 +119,32 @@ class FirestoreSurplusRepository implements SurplusRepository {
     required String listingId,
     required String token,
   }) async {
-    final listingDoc = await _listingsRef.doc(listingId).get();
-    final data = listingDoc.data();
-    if (!listingDoc.exists || data == null) {
+    try {
+      final response = await _postJson(
+        '/enterprise/listings/$listingId/validate-token',
+        {'token': token},
+      );
+      return response['ok'] == true;
+    } on SurplusException {
       return false;
     }
-
-    final hash = data['editTokenHash'] as String? ?? '';
-    if (hash.isEmpty) {
-      return false;
-    }
-    return verifyTokenHash(token: token, hash: hash);
   }
 
   @override
   Future<CreatedListingResult> createListing(ListingInput input) async {
     _validateInput(input);
-    final now = DateTime.now();
-    final token = generateEditToken();
-    final listingRef = _listingsRef.doc();
 
-    final listing = Listing(
-      id: listingRef.id,
-      venueId: input.venueId,
-      pickupPointText: input.pickupPointText,
-      itemType: input.itemType,
-      description: input.description,
-      quantityTotal: input.quantityTotal,
-      quantityRemaining: input.quantityTotal,
-      price: input.price,
-      currency: input.currency,
-      pickupStartAt: input.pickupStartAt,
-      pickupEndAt: input.pickupEndAt,
-      expiresAt: input.expiresAt,
-      displayNameOptional: input.displayNameOptional,
-      visibility: input.visibility,
-      status: ListingStatus.active,
-      editTokenHash: hashToken(token),
-      createdAt: now,
-      updatedAt: now,
-    );
+    final response = await _postJson('/enterprise/listings/create', {
+      'data': _listingInputToApiData(input),
+    });
 
-    await listingRef.set(listing.toMap());
+    final listingId = response['listingId'] as String?;
+    final token = response['token'] as String?;
+    if (listingId == null || token == null) {
+      throw const ValidationException('Invalid create response from server.');
+    }
 
-    return CreatedListingResult(listingId: listingRef.id, editToken: token);
+    return CreatedListingResult(listingId: listingId, editToken: token);
   }
 
   @override
@@ -169,42 +155,9 @@ class FirestoreSurplusRepository implements SurplusRepository {
   }) async {
     _validateInput(input);
 
-    await _firestore.runTransaction((tx) async {
-      final listingRef = _listingsRef.doc(listingId);
-      final snapshot = await tx.get(listingRef);
-      final data = snapshot.data();
-      if (!snapshot.exists || data == null) {
-        throw const ValidationException('Listing not found.');
-      }
-
-      final existing = Listing.fromMap(data, id: snapshot.id);
-      if (!verifyTokenHash(token: token, hash: existing.editTokenHash)) {
-        throw const PermissionDeniedException('Invalid edit token.');
-      }
-
-      final remaining = existing.quantityRemaining
-          .clamp(0, input.quantityTotal)
-          .toInt();
-      final now = DateTime.now();
-      tx.update(listingRef, {
-        'venueId': input.venueId,
-        'pickupPointText': input.pickupPointText,
-        'itemType': input.itemType,
-        'description': input.description,
-        'quantityTotal': input.quantityTotal,
-        'quantityRemaining': remaining,
-        'price': input.price,
-        'currency': input.currency,
-        'pickupStartAt': input.pickupStartAt,
-        'pickupEndAt': input.pickupEndAt,
-        'expiresAt': input.expiresAt,
-        'displayNameOptional': input.displayNameOptional,
-        'visibility': input.visibility.name,
-        'status': remaining == 0
-            ? ListingStatus.reserved.name
-            : ListingStatus.active.name,
-        'updatedAt': now,
-      });
+    await _postJson('/enterprise/listings/$listingId/update', {
+      'token': token,
+      'data': _listingInputToApiData(input),
     });
   }
 
@@ -213,25 +166,15 @@ class FirestoreSurplusRepository implements SurplusRepository {
     required String listingId,
     required String token,
   }) async {
-    final nextToken = generateEditToken();
+    final response = await _postJson(
+      '/enterprise/listings/$listingId/rotate-token',
+      {'token': token},
+    );
 
-    await _firestore.runTransaction((tx) async {
-      final listingRef = _listingsRef.doc(listingId);
-      final snapshot = await tx.get(listingRef);
-      final data = snapshot.data();
-      if (!snapshot.exists || data == null) {
-        throw const ValidationException('Listing not found.');
-      }
-      final listing = Listing.fromMap(data, id: snapshot.id);
-      if (!verifyTokenHash(token: token, hash: listing.editTokenHash)) {
-        throw const PermissionDeniedException('Invalid edit token.');
-      }
-      tx.update(listingRef, {
-        'editTokenHash': hashToken(nextToken),
-        'updatedAt': DateTime.now(),
-      });
-    });
-
+    final nextToken = response['token'] as String?;
+    if (nextToken == null || nextToken.isEmpty) {
+      throw const ValidationException('Failed to rotate token.');
+    }
     return nextToken;
   }
 
@@ -240,18 +183,8 @@ class FirestoreSurplusRepository implements SurplusRepository {
     required String listingId,
     required String token,
   }) async {
-    await _firestore.runTransaction((tx) async {
-      final listingRef = _listingsRef.doc(listingId);
-      final snapshot = await tx.get(listingRef);
-      final data = snapshot.data();
-      if (!snapshot.exists || data == null) {
-        throw const ValidationException('Listing not found.');
-      }
-      final listing = Listing.fromMap(data, id: snapshot.id);
-      if (!verifyTokenHash(token: token, hash: listing.editTokenHash)) {
-        throw const PermissionDeniedException('Invalid edit token.');
-      }
-      tx.update(listingRef, {'editTokenHash': '', 'updatedAt': DateTime.now()});
+    await _postJson('/enterprise/listings/$listingId/revoke-token', {
+      'token': token,
     });
   }
 
@@ -329,59 +262,11 @@ class FirestoreSurplusRepository implements SurplusRepository {
     required String token,
     required String pickupCode,
   }) async {
-    try {
-      await _firestore.runTransaction((tx) async {
-        final listingRef = _listingsRef.doc(listingId);
-        final reservationRef = _reservationsRef.doc(reservationId);
-
-        final listingSnap = await tx.get(listingRef);
-        final reservationSnap = await tx.get(reservationRef);
-
-        final listingData = listingSnap.data();
-        final reservationData = reservationSnap.data();
-
-        if (!listingSnap.exists || listingData == null) {
-          throw const ValidationException('Listing not found.');
-        }
-        if (!reservationSnap.exists || reservationData == null) {
-          throw const ValidationException('Reservation not found.');
-        }
-
-        final listing = Listing.fromMap(listingData, id: listingId);
-        final reservation = Reservation.fromMap(
-          reservationData,
-          id: reservationId,
-        );
-
-        if (!verifyTokenHash(token: token, hash: listing.editTokenHash)) {
-          throw const PermissionDeniedException('Invalid edit token.');
-        }
-        if (reservation.status != ReservationStatus.reserved) {
-          throw const ValidationException('Reservation is not active.');
-        }
-        if (reservation.pickupCode != pickupCode) {
-          throw const ValidationException('Pickup code does not match.');
-        }
-
-        tx.update(reservationRef, {'status': ReservationStatus.completed.name});
-        if (listing.quantityRemaining == 0) {
-          tx.update(listingRef, {
-            'status': ListingStatus.completed.name,
-            'updatedAt': DateTime.now(),
-          });
-        }
-      });
-    } on ValidationException {
-      final reservation = await _reservationsRef.doc(reservationId).get();
-      final data = reservation.data();
-      final uid = data?['claimerUid'] as String? ?? 'unknown';
-      await addAbuseSignal(
-        listingId: listingId,
-        claimerUid: uid,
-        reason: 'pickup_code_mismatch',
-      );
-      rethrow;
-    }
+    await _postJson('/enterprise/listings/$listingId/confirm-pickup', {
+      'token': token,
+      'reservationId': reservationId,
+      'pickupCode': pickupCode,
+    });
   }
 
   @override
@@ -450,5 +335,75 @@ class FirestoreSurplusRepository implements SurplusRepository {
         'Expiry time must be after pickup start time.',
       );
     }
+  }
+
+  Map<String, dynamic> _listingInputToApiData(ListingInput input) {
+    return {
+      'venueId': input.venueId,
+      'pickupPointText': input.pickupPointText,
+      'itemType': input.itemType,
+      'description': input.description,
+      'quantityTotal': input.quantityTotal,
+      'pickupStartAt': input.pickupStartAt.toUtc().toIso8601String(),
+      'pickupEndAt': input.pickupEndAt.toUtc().toIso8601String(),
+      'expiresAt': input.expiresAt.toUtc().toIso8601String(),
+      'displayNameOptional': input.displayNameOptional,
+      'visibility': input.visibility.name,
+    };
+  }
+
+  Future<Map<String, dynamic>> _postJson(
+    String path,
+    Map<String, dynamic> payload,
+  ) async {
+    final uri = Uri.parse('${_apiBaseUrl.replaceAll(RegExp(r'/+$'), '')}$path');
+    final response = await _http.post(
+      uri,
+      headers: {'content-type': 'application/json'},
+      body: jsonEncode(payload),
+    );
+
+    Map<String, dynamic> body = const {};
+    if (response.body.isNotEmpty) {
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map<String, dynamic>) {
+        body = decoded;
+      }
+    }
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return body;
+    }
+
+    final message = (body['error'] as String?)?.trim();
+    final resolvedMessage = (message != null && message.isNotEmpty)
+        ? message
+        : 'Request failed with status ${response.statusCode}.';
+
+    if (response.statusCode == 403) {
+      throw PermissionDeniedException(resolvedMessage);
+    }
+    throw ValidationException(resolvedMessage);
+  }
+
+  Future<List<Reservation>> _fetchEnterpriseReservations({
+    required String listingId,
+    required String token,
+  }) async {
+    final response = await _postJson(
+      '/enterprise/listings/$listingId/reservations',
+      {'token': token},
+    );
+    final raw = response['reservations'];
+    if (raw is! List) {
+      return const <Reservation>[];
+    }
+
+    final reservations = raw.whereType<Map>().map((entry) {
+      final map = Map<String, dynamic>.from(entry);
+      final id = map.remove('id') as String? ?? '';
+      return Reservation.fromMap(map, id: id);
+    }).toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return reservations;
   }
 }
