@@ -1,0 +1,31 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    match /venues/{venueId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /listings/{listingId} {
+      allow read: if true;
+      // Listing writes are server-side only via Firebase Admin SDK.
+      allow create, update, delete: if false;
+    }
+
+    match /reservations/{reservationId} {
+      allow read: if isSignedIn() && request.auth.uid == resource.data.claimerUid;
+      // Reservation writes are server-side only via Firebase Admin SDK.
+      allow create, update, delete: if false;
+    }
+
+    match /abuse_signals/{signalId} {
+      // Abuse signals are server-side only.
+      allow create: if false;
+      allow read, update, delete: if false;
+    }
+  }
+}
