@@ -26,14 +26,6 @@ class _InstrumentedRepository extends InMemorySurplusRepository {
   final Map<String, Reservation> forcedReservations = <String, Reservation>{};
 
   @override
-  Stream<List<Reservation>> watchReservationsForListing({
-    required String listingId,
-    required String token,
-  }) {
-    return super.watchReservationsForListing(listingId: listingId, token: token);
-  }
-
-  @override
   Stream<Listing?> watchListing(String listingId) {
     if (listingStreamErrorIds.contains(listingId)) {
       return Stream.error(StateError('listing stream failed'));
