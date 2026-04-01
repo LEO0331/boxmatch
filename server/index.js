@@ -31,6 +31,7 @@ app.use((req, res, next) => corsMiddleware(req, res, next));
 const LISTINGS = 'listings';
 const RESERVATIONS = 'reservations';
 const ABUSE_SIGNALS = 'abuse_signals';
+const IDEMPOTENCY_KEYS = 'idempotency_keys';
 
 function sha256(value) {
   return crypto.createHash('sha256').update(value, 'utf8').digest('hex');
@@ -299,6 +300,7 @@ app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
     const claimerUid = String(req.body?.claimerUid || '').trim();
     const qty = Number(req.body?.qty || 0);
     const disclaimerAccepted = req.body?.disclaimerAccepted === true;
+    const idempotencyKey = String(req.body?.idempotencyKey || '').trim();
 
     if (!claimerUid) {
       return errorResponse(
@@ -324,9 +326,38 @@ app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
         'VALIDATION_DISCLAIMER_REQUIRED'
       );
     }
+    if (!idempotencyKey) {
+      return errorResponse(
+        res,
+        400,
+        'idempotencyKey is required.',
+        'VALIDATION_IDEMPOTENCY_KEY_REQUIRED'
+      );
+    }
+    if (idempotencyKey.length > 128) {
+      return errorResponse(
+        res,
+        400,
+        'idempotencyKey is too long.',
+        'VALIDATION_IDEMPOTENCY_KEY_INVALID'
+      );
+    }
 
     const reservationRef = db.collection(RESERVATIONS).doc();
-    await db.runTransaction(async (tx) => {
+    const idempotencyDocId = sha256(`${claimerUid}|${listingId}|${idempotencyKey}`);
+    const idempotencyRef = db.collection(IDEMPOTENCY_KEYS).doc(idempotencyDocId);
+
+    const reserveResult = await db.runTransaction(async (tx) => {
+      const idempotencySnap = await tx.get(idempotencyRef);
+      if (idempotencySnap.exists) {
+        const data = idempotencySnap.data() || {};
+        const cached = data.reservation;
+        if (data.status === 'succeeded' && cached && typeof cached === 'object') {
+          return { idempotentReplay: true, reservation: cached };
+        }
+        throw new Error('Idempotency key conflict.');
+      }
+
       const listingRef = db.collection(LISTINGS).doc(listingId);
       const listingSnap = await tx.get(listingRef);
       if (!listingSnap.exists) {
@@ -360,50 +391,74 @@ app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
         updatedAt: now
       });
 
+      const pickupCode = randomDigits(4);
       tx.set(reservationRef, {
         listingId,
         claimerUid,
         qty,
-        pickupCode: randomDigits(4),
+        pickupCode,
         status: 'reserved',
         createdAt: now,
         expiresAt: listing.expiresAt
       });
+
+      const reservationPayload = {
+        id: reservationRef.id,
+        listingId,
+        claimerUid,
+        qty,
+        pickupCode,
+        status: 'reserved',
+        createdAt: now.toISOString(),
+        expiresAt: toIso(listing.expiresAt)
+      };
+      tx.set(idempotencyRef, {
+        listingId,
+        claimerUid,
+        idempotencyKeyHash: idempotencyDocId,
+        status: 'succeeded',
+        reservation: reservationPayload,
+        createdAt: now,
+        updatedAt: now
+      });
+
+      return { idempotentReplay: false, reservation: reservationPayload };
     });
 
-    const created = await reservationRef.get();
-    const data = created.data() || {};
+    if (reserveResult.idempotentReplay) {
+      logEvent('info', 'recipient.reserve.idempotent_replay', {
+        requestId: req.requestId,
+        listingId,
+        claimerUid
+      });
+    }
+
     return res.json({
       ok: true,
-      code: 'RESERVE_SUCCESS',
-      reservation: {
-        id: created.id,
-        listingId: data.listingId || listingId,
-        claimerUid: data.claimerUid || claimerUid,
-        qty: Number(data.qty || qty),
-        pickupCode: data.pickupCode || '',
-        status: data.status || 'reserved',
-        createdAt: toIso(data.createdAt),
-        expiresAt: toIso(data.expiresAt)
-      }
+      code: reserveResult.idempotentReplay
+        ? 'RESERVE_SUCCESS_IDEMPOTENT_REPLAY'
+        : 'RESERVE_SUCCESS',
+      idempotentReplay: reserveResult.idempotentReplay,
+      reservation: reserveResult.reservation
     });
   } catch (error) {
     const message = error?.message || 'Internal server error.';
-    const status = ['Listing not found.', 'This listing is no longer available.'].includes(
-      message
-    )
+    const status = [
+      'Listing not found.',
+      'This listing is no longer available.',
+      'Idempotency key conflict.'
+    ].includes(message)
       ? 400
       : 500;
+    const reasonCode = message === 'Idempotency key conflict.'
+      ? 'IDEMPOTENCY_KEY_CONFLICT'
+      : status == 400
+      ? 'RESERVE_FAILED_BUSINESS_RULE'
+      : 'RESERVE_FAILED_INTERNAL';
     logServerError('recipient.reserve.failed', req, error, {
-      reasonCode:
-        status == 400 ? 'RESERVE_FAILED_BUSINESS_RULE' : 'RESERVE_FAILED_INTERNAL'
+      reasonCode
     });
-    return errorResponse(
-      res,
-      status,
-      message,
-      status == 400 ? 'RESERVE_FAILED_BUSINESS_RULE' : 'RESERVE_FAILED_INTERNAL'
-    );
+    return errorResponse(res, status, message, reasonCode);
   }
 });
 

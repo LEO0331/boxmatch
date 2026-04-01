@@ -23,6 +23,7 @@ Additional common request fields:
 - `http.request.completed`
 - `abuse.signal.created`
 - `recipient.reserve.failed`
+- `recipient.reserve.idempotent_replay`
 - `enterprise.listing.create.failed`
 - `enterprise.token.validate.failed`
 - `enterprise.reservation.list.failed`
@@ -36,6 +37,7 @@ Additional common request fields:
 ### Success Codes
 
 - `RESERVE_SUCCESS`
+- `RESERVE_SUCCESS_IDEMPOTENT_REPLAY`
 - `CREATE_LISTING_SUCCESS`
 - `VALIDATE_TOKEN_SUCCESS`
 - `LIST_RESERVATIONS_SUCCESS`
@@ -49,6 +51,8 @@ Additional common request fields:
 - `VALIDATION_CLAIMER_UID_REQUIRED`
 - `VALIDATION_QTY_INVALID`
 - `VALIDATION_DISCLAIMER_REQUIRED`
+- `VALIDATION_IDEMPOTENCY_KEY_REQUIRED`
+- `VALIDATION_IDEMPOTENCY_KEY_INVALID`
 - `VALIDATION_CREATE_LISTING_FAILED`
 - `VALIDATION_UPDATE_LISTING_FAILED`
 - `VALIDATION_UPDATE_LISTING_EMPTY`
@@ -66,6 +70,7 @@ Additional common request fields:
 ### Business Rule Failure Codes
 
 - `RESERVE_FAILED_BUSINESS_RULE`
+- `IDEMPOTENCY_KEY_CONFLICT`
 - `CONFIRM_PICKUP_FAILED_BUSINESS_RULE`
 
 ### Internal Error Codes

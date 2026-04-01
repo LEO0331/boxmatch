@@ -9,9 +9,9 @@
 | 5 | Security | Move recipient reserve to backend and lock client reservation writes | Eng-1 | 100% reserve writes via API | API + rules updated | Done |
 | 6 | Security | Add API request validation hardening (required fields + type checks) | Eng-1 | Validation failure rate visible in logs | Input validation layer | Done |
 | 7 | Security | Add abuse event taxonomy and structured logging keys | Eng-1 | 100% write failures tagged with reason code | Logging schema v1 | Done |
-| 8 | Reliability | Add idempotency key support to reserve endpoint | Eng-1 | Duplicate reserve rate < 1% | Idempotent reserve logic | Todo |
-| 9 | Reliability | Add API timeout + retry policy in Flutter HTTP client | Eng-2 | API timeout UI error coverage 100% | Client network policy | Todo |
-| 10 | Reliability | Add reservation polling backoff strategy (enterprise side) | Eng-2 | No excessive polling alerts | Adaptive polling logic | Todo |
+| 8 | Reliability | Add idempotency key support to reserve endpoint | Eng-1 | Duplicate reserve rate < 1% | Idempotent reserve logic | Done |
+| 9 | Reliability | Add API timeout + retry policy in Flutter HTTP client | Eng-2 | API timeout UI error coverage 100% | `docs/ops/client-network-policy.md` | Done |
+| 10 | Reliability | Add reservation polling backoff strategy (enterprise side) | Eng-2 | No excessive polling alerts | `docs/ops/enterprise-reservation-polling-policy.md` | Done |
 | 11 | Reliability | Add health endpoint probe and uptime monitor setup (UptimeRobot free) | PM + Eng-1 | Uptime monitor active | Monitor URL + alert rule | Todo |
 | 12 | Reliability | Add error boundary UX for map/listing/reserve pages | Eng-2 | Crash-free session rate > 98% | User-safe fallback states | Todo |
 | 13 | Product UX | Add enterprise quick post template preset | Eng-2 | Post median time < 60s | Reusable template UI | Todo |

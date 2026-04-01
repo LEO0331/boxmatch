@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:http/http.dart' as http;
 
+import '../../../core/utils/id_utils.dart';
 import '../domain/listing.dart';
 import '../domain/listing_input.dart';
 import '../domain/reservation.dart';
@@ -22,6 +24,11 @@ class FirestoreSurplusRepository implements SurplusRepository {
   final FirebaseFirestore _firestore;
   final String _apiBaseUrl;
   final http.Client _http;
+  static const Duration _defaultTimeout = Duration(seconds: 8);
+  static const Set<int> _retryableStatusCodes = {408, 429, 500, 502, 503, 504};
+  static const Duration _pollFastInterval = Duration(seconds: 8);
+  static const Duration _pollMaxInterval = Duration(seconds: 60);
+  static const Duration _pollErrorMaxInterval = Duration(seconds: 45);
 
   CollectionReference<Map<String, dynamic>> get _venuesRef =>
       _firestore.collection('venues');
@@ -104,12 +111,38 @@ class FirestoreSurplusRepository implements SurplusRepository {
     if (!isAllowed) {
       throw const PermissionDeniedException('Invalid edit token.');
     }
+
+    var hasEmitted = false;
+    var unchangedRounds = 0;
+    var consecutiveErrors = 0;
+    var previousFingerprint = '';
+
     while (true) {
-      yield await _fetchEnterpriseReservations(
-        listingId: listingId,
-        token: token,
-      );
-      await Future<void>.delayed(const Duration(seconds: 8));
+      try {
+        final reservations = await _fetchEnterpriseReservations(
+          listingId: listingId,
+          token: token,
+        );
+        final fingerprint = _reservationsFingerprint(reservations);
+        final hasChanged = !hasEmitted || fingerprint != previousFingerprint;
+
+        if (hasChanged) {
+          yield reservations;
+          hasEmitted = true;
+          previousFingerprint = fingerprint;
+          unchangedRounds = 0;
+        } else {
+          unchangedRounds++;
+        }
+
+        consecutiveErrors = 0;
+        await Future<void>.delayed(_pollIntervalForUnchanged(unchangedRounds));
+      } on PermissionDeniedException {
+        rethrow;
+      } on SurplusException {
+        consecutiveErrors++;
+        await Future<void>.delayed(_pollIntervalForErrors(consecutiveErrors));
+      }
     }
   }
 
@@ -122,6 +155,7 @@ class FirestoreSurplusRepository implements SurplusRepository {
       final response = await _postJson(
         '/enterprise/listings/$listingId/validate-token',
         {'token': token},
+        maxAttempts: 3,
       );
       return response['ok'] == true;
     } on SurplusException {
@@ -203,7 +237,8 @@ class FirestoreSurplusRepository implements SurplusRepository {
       'claimerUid': claimerUid,
       'qty': qty,
       'disclaimerAccepted': disclaimerAccepted,
-    });
+      'idempotencyKey': 'reserve_${randomId(length: 24)}',
+    }, maxAttempts: 3);
     final raw = response['reservation'];
     if (raw is! Map) {
       throw const ValidationException(
@@ -317,36 +352,126 @@ class FirestoreSurplusRepository implements SurplusRepository {
 
   Future<Map<String, dynamic>> _postJson(
     String path,
-    Map<String, dynamic> payload,
-  ) async {
+    Map<String, dynamic> payload, {
+    int maxAttempts = 1,
+  }) async {
     final uri = Uri.parse('${_apiBaseUrl.replaceAll(RegExp(r'/+$'), '')}$path');
-    final response = await _http.post(
-      uri,
-      headers: {'content-type': 'application/json'},
-      body: jsonEncode(payload),
-    );
+    if (maxAttempts < 1) {
+      maxAttempts = 1;
+    }
 
-    Map<String, dynamic> body = const {};
-    if (response.body.isNotEmpty) {
-      final decoded = jsonDecode(response.body);
-      if (decoded is Map<String, dynamic>) {
-        body = decoded;
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        final response = await _http
+            .post(
+              uri,
+              headers: {'content-type': 'application/json'},
+              body: jsonEncode(payload),
+            )
+            .timeout(_defaultTimeout);
+
+        Map<String, dynamic> body = const {};
+        if (response.body.isNotEmpty) {
+          final decoded = jsonDecode(response.body);
+          if (decoded is Map<String, dynamic>) {
+            body = decoded;
+          }
+        }
+
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          return body;
+        }
+
+        if (_retryableStatusCodes.contains(response.statusCode) &&
+            attempt < maxAttempts) {
+          await Future<void>.delayed(_retryDelay(attempt));
+          continue;
+        }
+
+        final message = (body['error'] as String?)?.trim();
+        final resolvedMessage = (message != null && message.isNotEmpty)
+            ? message
+            : 'Request failed with status ${response.statusCode}.';
+
+        if (response.statusCode == 403) {
+          throw PermissionDeniedException(resolvedMessage);
+        }
+        throw ValidationException(resolvedMessage);
+      } on TimeoutException {
+        if (attempt < maxAttempts) {
+          await Future<void>.delayed(_retryDelay(attempt));
+          continue;
+        }
+        throw const ValidationException('Network timeout. Please try again.');
+      } on http.ClientException {
+        if (attempt < maxAttempts) {
+          await Future<void>.delayed(_retryDelay(attempt));
+          continue;
+        }
+        throw const ValidationException(
+          'Network error. Please check connection and try again.',
+        );
       }
     }
 
-    if (response.statusCode >= 200 && response.statusCode < 300) {
-      return body;
+    throw const ValidationException('Request failed.');
+  }
+
+  Duration _retryDelay(int attempt) {
+    switch (attempt) {
+      case 1:
+        return const Duration(milliseconds: 300);
+      case 2:
+        return const Duration(milliseconds: 800);
+      default:
+        return const Duration(milliseconds: 1500);
+    }
+  }
+
+  Duration _pollIntervalForUnchanged(int unchangedRounds) {
+    if (unchangedRounds <= 0) {
+      return _pollFastInterval;
     }
 
-    final message = (body['error'] as String?)?.trim();
-    final resolvedMessage = (message != null && message.isNotEmpty)
-        ? message
-        : 'Request failed with status ${response.statusCode}.';
-
-    if (response.statusCode == 403) {
-      throw PermissionDeniedException(resolvedMessage);
+    final multiplier = 1 << unchangedRounds;
+    final next = Duration(
+      milliseconds: _pollFastInterval.inMilliseconds * multiplier,
+    );
+    if (next > _pollMaxInterval) {
+      return _pollMaxInterval;
     }
-    throw ValidationException(resolvedMessage);
+    return next;
+  }
+
+  Duration _pollIntervalForErrors(int consecutiveErrors) {
+    if (consecutiveErrors <= 0) {
+      return _pollFastInterval;
+    }
+
+    final multiplier = 1 << (consecutiveErrors - 1);
+    final next = Duration(
+      milliseconds: _pollFastInterval.inMilliseconds * multiplier,
+    );
+    if (next > _pollErrorMaxInterval) {
+      return _pollErrorMaxInterval;
+    }
+    return next;
+  }
+
+  String _reservationsFingerprint(List<Reservation> reservations) {
+    final buffer = StringBuffer();
+    for (final reservation in reservations) {
+      buffer
+        ..write(reservation.id)
+        ..write('|')
+        ..write(reservation.status.name)
+        ..write('|')
+        ..write(reservation.qty)
+        ..write('|')
+        ..write(reservation.createdAt.toUtc().microsecondsSinceEpoch)
+        ..write(';');
+    }
+    return buffer.toString();
   }
 
   Future<List<Reservation>> _fetchEnterpriseReservations({
@@ -356,6 +481,7 @@ class FirestoreSurplusRepository implements SurplusRepository {
     final response = await _postJson(
       '/enterprise/listings/$listingId/reservations',
       {'token': token},
+      maxAttempts: 3,
     );
     final raw = response['reservations'];
     if (raw is! List) {

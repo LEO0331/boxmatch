@@ -40,7 +40,8 @@ Base URL (after deploy on Render):
 {
   "claimerUid": "firebase-anon-uid",
   "qty": 1,
-  "disclaimerAccepted": true
+  "disclaimerAccepted": true,
+  "idempotencyKey": "reserve_abc123_same_key_for_retry"
 }
 ```
 
