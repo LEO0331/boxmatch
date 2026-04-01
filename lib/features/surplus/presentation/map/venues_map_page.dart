@@ -7,12 +7,83 @@ import '../../../../app/app_scope.dart';
 import '../../../surplus/domain/listing.dart';
 import '../../../surplus/domain/venue.dart';
 
-class VenuesMapPage extends StatelessWidget {
+class _TileProviderOption {
+  const _TileProviderOption({
+    required this.name,
+    required this.urlTemplate,
+    this.fallbackUrl,
+    this.subdomains = const <String>[],
+  });
+
+  final String name;
+  final String urlTemplate;
+  final String? fallbackUrl;
+  final List<String> subdomains;
+}
+
+const _tileProviderOptions = <_TileProviderOption>[
+  _TileProviderOption(
+    name: 'Carto Light',
+    urlTemplate:
+        'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    fallbackUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    subdomains: ['a', 'b', 'c', 'd'],
+  ),
+  _TileProviderOption(
+    name: 'OpenStreetMap',
+    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    fallbackUrl: 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
+    subdomains: ['a', 'b', 'c'],
+  ),
+  _TileProviderOption(
+    name: 'OSM HOT',
+    urlTemplate: 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
+    fallbackUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    subdomains: ['a', 'b', 'c'],
+  ),
+];
+
+class VenuesMapPage extends StatefulWidget {
   const VenuesMapPage({super.key});
+
+  @override
+  State<VenuesMapPage> createState() => _VenuesMapPageState();
+}
+
+class _VenuesMapPageState extends State<VenuesMapPage> {
+  int _providerIndex = 0;
+  int _recentErrorCount = 0;
+  DateTime? _lastErrorAt;
+  DateTime? _lastSwitchAt;
+
+  void _onTileError() {
+    final now = DateTime.now();
+
+    if (_lastErrorAt != null &&
+        now.difference(_lastErrorAt!) > const Duration(seconds: 15)) {
+      _recentErrorCount = 0;
+    }
+
+    _lastErrorAt = now;
+    _recentErrorCount += 1;
+
+    final inCooldown =
+        _lastSwitchAt != null &&
+        now.difference(_lastSwitchAt!) < const Duration(seconds: 20);
+
+    if (!inCooldown && _recentErrorCount >= 10) {
+      setState(() {
+        _providerIndex = (_providerIndex + 1) % _tileProviderOptions.length;
+        _recentErrorCount = 0;
+        _lastSwitchAt = now;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final repository = AppScope.of(context).repository;
+    final provider = _tileProviderOptions[_providerIndex];
 
     return Scaffold(
       appBar: AppBar(title: const Text('Venue Map')),
@@ -33,6 +104,24 @@ class VenuesMapPage extends StatelessWidget {
 
               return Column(
                 children: [
+                  Material(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        child: Text(
+                          'Map source: ${provider.name} (auto fallback enabled)',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                    ),
+                  ),
                   Expanded(
                     child: FlutterMap(
                       options: MapOptions(
@@ -47,12 +136,19 @@ class VenuesMapPage extends StatelessWidget {
                       ),
                       children: [
                         TileLayer(
-                          // CARTO tiles are generally CORS-friendly for web demos.
-                          urlTemplate:
-                              'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-                          subdomains: const ['a', 'b', 'c', 'd'],
+                          urlTemplate: provider.urlTemplate,
+                          fallbackUrl: provider.fallbackUrl,
+                          subdomains: provider.subdomains,
                           userAgentPackageName: 'com.example.boxmatch',
                           tileProvider: CancellableNetworkTileProvider(),
+                          errorTileCallback: (tile, error, stackTrace) =>
+                              _onTileError(),
+                        ),
+                        RichAttributionWidget(
+                          attributions: const [
+                            TextSourceAttribution('OpenStreetMap contributors'),
+                            TextSourceAttribution('CARTO'),
+                          ],
                         ),
                         MarkerLayer(
                           markers: venues
