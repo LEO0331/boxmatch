@@ -1,17 +1,49 @@
-# boxmatch
+# Boxmatch
 
-A new Flutter project.
+Boxmatch is a lightweight surplus-food matching app for exhibitions.
+Enterprises can post leftover lunchboxes or drinks, and nearby users can reserve for pickup.
 
-## Getting Started
+## MVP Highlights
 
-This project is a starting point for a Flutter application.
+- Listing feed + map view (OpenStreetMap) for curated exhibition venues.
+- Enterprise posting flow with minimal public profile fields.
+- No-login enterprise edit flow using secure tokenized edit links.
+- Recipient reserve flow with disclaimer confirmation and 4-digit pickup code.
+- Spark-friendly expiry handling: realtime updates + 30-minute client reconciliation.
+- Donation-first model (`price = 0`) with schema ready for low-price offers later.
 
-A few resources to get you started if this is your first Flutter project:
+## Data Model (Firestore)
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+Collections used:
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- `venues`
+- `listings`
+- `reservations`
+- `abuse_signals`
+
+See `firestore.rules` and `firestore.indexes.json` for starter Firebase config.
+
+## Run
+
+```bash
+flutter pub get
+flutter run
+```
+
+## Firebase Notes
+
+The app attempts Firebase initialization first.
+If Firebase is not configured in the current environment, it automatically falls back to local in-memory demo mode so development can continue.
+
+To enable Firebase mode in production:
+
+1. Create a Firebase project.
+2. Add platform configs (`google-services.json`, `GoogleService-Info.plist`, etc.).
+3. Deploy Firestore rules/indexes.
+
+## Testing
+
+```bash
+flutter analyze
+flutter test
+```
