@@ -73,6 +73,17 @@ flutter analyze
 flutter test
 ```
 
+## Release Smoke + Gate
+
+```bash
+/Users/Leo/Documents/boxmatch/scripts/smoke_test.sh
+```
+
+Production deploy gate workflow:
+
+- `.github/workflows/release-checklist-gate.yml`
+- checklist doc: `docs/ops/release-checklist.md`
+
 ## Execution Board
 
 - 30-day POC board for GitHub Wiki:

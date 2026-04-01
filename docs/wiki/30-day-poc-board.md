@@ -26,12 +26,12 @@
 | 22 | Ops | Create pilot day SOP (before/during/after event) | PM | SOP completed | `docs/ops/pilot-sop.md` | Done |
 | 23 | Ops | Add incident report template (food safety/dispute/no-show) | PM + Eng-2 | Incident form ready | `docs/ops/incident-template.md` | Done |
 | 24 | Ops | Add moderation playbook (suspend listing, revoke token, block abuse UID) | PM + Eng-1 | Moderation response < 15 min | `docs/ops/moderation-playbook.md` | Done |
-| 25 | Quality | Add end-to-end smoke test script for core flow | Eng-1 | Smoke pass on each release | `scripts/smoke_test.*` | Todo |
-| 26 | Quality | Add release checklist gate in GitHub Actions | Eng-1 | Checklist required before prod deploy | Workflow update | Todo |
-| 27 | Pilot | Run pilot event #1 and collect baseline data | PM + Eng-2 | >= 20 successful pickups | Pilot report #1 | Todo |
-| 28 | Pilot | Run pilot event #2 and compare baseline | PM + Eng-2 | >= 30 successful pickups cumulative | Pilot report #2 | Todo |
-| 29 | Pilot | Analyze failures and prioritize top 5 fixes | PM + Eng-1 | Root-cause list completed | Retrospective notes | Todo |
-| 30 | Decision | Final POC review (continue/iterate/pivot) with KPI outcomes | PM + Team | Decision memo finalized | `docs/wiki/30-day-retro.md` | Todo |
+| 25 | Quality | Add end-to-end smoke test script for core flow | Eng-1 | Smoke pass on each release | `scripts/smoke_test.sh`, `docs/ops/smoke-test.md` | Done |
+| 26 | Quality | Add release checklist gate in GitHub Actions | Eng-1 | Checklist required before prod deploy | `.github/workflows/release-checklist-gate.yml`, `docs/ops/release-checklist.md` | Done |
+| 27 | Pilot | Run pilot event #1 and collect baseline data | PM + Eng-2 | >= 20 successful pickups | `docs/wiki/pilot-report-1.md` | Blocked (Need real event data) |
+| 28 | Pilot | Run pilot event #2 and compare baseline | PM + Eng-2 | >= 30 successful pickups cumulative | `docs/wiki/pilot-report-2.md` | Blocked (Need real event data) |
+| 29 | Pilot | Analyze failures and prioritize top 5 fixes | PM + Eng-1 | Root-cause list completed | `docs/wiki/day29-root-cause.md` | Blocked (Need pilot findings) |
+| 30 | Decision | Final POC review (continue/iterate/pivot) with KPI outcomes | PM + Team | Decision memo finalized | `docs/wiki/30-day-retro.md` | Blocked (Need KPI outcomes) |
 
 ## Owner Legend
 
