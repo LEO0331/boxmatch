@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:http/http.dart' as http;
 
-import '../../../core/utils/id_utils.dart';
 import '../domain/listing.dart';
 import '../domain/listing_input.dart';
 import '../domain/reservation.dart';
@@ -200,59 +199,23 @@ class FirestoreSurplusRepository implements SurplusRepository {
         'Please accept the disclaimer before reserving.',
       );
     }
-
-    final reservationRef = _reservationsRef.doc();
-    try {
-      await _firestore.runTransaction((tx) async {
-        final listingRef = _listingsRef.doc(listingId);
-        final listingSnapshot = await tx.get(listingRef);
-        final data = listingSnapshot.data();
-        if (!listingSnapshot.exists || data == null) {
-          throw const ValidationException('Listing not found.');
-        }
-
-        final listing = Listing.fromMap(data, id: listingSnapshot.id);
-        final now = DateTime.now();
-        if (!listing.canReserve(now) || listing.quantityRemaining < qty) {
-          throw const ValidationException(
-            'This listing is no longer available.',
-          );
-        }
-
-        final nextRemaining = listing.quantityRemaining - qty;
-        tx.update(listingRef, {
-          'quantityRemaining': nextRemaining,
-          'status': nextRemaining == 0
-              ? ListingStatus.reserved.name
-              : ListingStatus.active.name,
-          'updatedAt': now,
-        });
-
-        tx.set(reservationRef, {
-          'listingId': listingId,
-          'claimerUid': claimerUid,
-          'qty': qty,
-          'pickupCode': randomDigits(length: 4),
-          'status': ReservationStatus.reserved.name,
-          'createdAt': now,
-          'expiresAt': listing.expiresAt,
-        });
-      });
-    } on ValidationException {
-      await addAbuseSignal(
-        listingId: listingId,
-        claimerUid: claimerUid,
-        reason: 'reserve_failed_unavailable',
+    final response = await _postJson('/recipient/listings/$listingId/reserve', {
+      'claimerUid': claimerUid,
+      'qty': qty,
+      'disclaimerAccepted': disclaimerAccepted,
+    });
+    final raw = response['reservation'];
+    if (raw is! Map) {
+      throw const ValidationException(
+        'Invalid reservation response from server.',
       );
-      rethrow;
     }
-
-    final snapshot = await reservationRef.get();
-    final reservationData = snapshot.data();
-    if (reservationData == null) {
-      throw const ValidationException('Reservation could not be created.');
+    final map = Map<String, dynamic>.from(raw);
+    final id = map.remove('id') as String? ?? '';
+    if (id.isEmpty) {
+      throw const ValidationException('Reservation response missing id.');
     }
-    return Reservation.fromMap(reservationData, id: reservationRef.id);
+    return Reservation.fromMap(map, id: id);
   }
 
   @override

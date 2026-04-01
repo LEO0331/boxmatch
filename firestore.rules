@@ -18,11 +18,8 @@ service cloud.firestore {
 
     match /reservations/{reservationId} {
       allow read: if isSignedIn() && request.auth.uid == resource.data.claimerUid;
-      allow create: if isSignedIn()
-                    && request.resource.data.claimerUid == request.auth.uid
-                    && request.resource.data.qty is int
-                    && request.resource.data.qty > 0;
-      allow update: if isSignedIn() && request.auth.uid == resource.data.claimerUid;
+      // Reservation writes are server-side only via Firebase Admin SDK.
+      allow create, update, delete: if false;
     }
 
     match /abuse_signals/{signalId} {

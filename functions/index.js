@@ -158,6 +158,14 @@ function validateAndBuildCreate(body) {
   return { errors, payload };
 }
 
+function randomDigits(length = 4) {
+  let output = '';
+  for (let i = 0; i < length; i++) {
+    output += Math.floor(Math.random() * 10);
+  }
+  return output;
+}
+
 async function verifyTokenAndFetchListing(listingId, token) {
   if (!listingId || !token) {
     return { error: 'listingId and token are required.', code: 400 };
@@ -192,6 +200,96 @@ async function verifyTokenAndFetchListing(listingId, token) {
 
 app.get('/health', async (_req, res) => {
   res.json({ ok: true, service: 'boxmatch-functions', ts: nowDate().toISOString() });
+});
+
+app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
+  try {
+    const listingId = req.params.listingId;
+    const claimerUid = String(req.body?.claimerUid || '').trim();
+    const qty = Number(req.body?.qty || 0);
+    const disclaimerAccepted = req.body?.disclaimerAccepted === true;
+
+    if (!claimerUid) {
+      return res.status(400).json({ error: 'claimerUid is required.' });
+    }
+    if (!Number.isInteger(qty) || qty <= 0) {
+      return res.status(400).json({ error: 'qty must be a positive integer.' });
+    }
+    if (!disclaimerAccepted) {
+      return res.status(400).json({ error: 'Please accept disclaimer first.' });
+    }
+
+    const reservationRef = db.collection(RESERVATIONS).doc();
+    await db.runTransaction(async (tx) => {
+      const listingRef = db.collection(LISTINGS).doc(listingId);
+      const listingSnap = await tx.get(listingRef);
+      if (!listingSnap.exists) {
+        throw new Error('Listing not found.');
+      }
+
+      const listing = listingSnap.data() || {};
+      const expiresAt = listing.expiresAt?.toDate
+        ? listing.expiresAt.toDate()
+        : new Date(listing.expiresAt);
+      const now = nowDate();
+      const quantityRemaining = Number(listing.quantityRemaining || 0);
+      const status = String(listing.status || 'active');
+
+      const isExpired = Number.isNaN(expiresAt.getTime()) ? false : expiresAt <= now;
+      const unavailable = isExpired || quantityRemaining < qty || status !== 'active';
+      if (unavailable) {
+        tx.set(db.collection(ABUSE_SIGNALS).doc(), {
+          listingId,
+          claimerUid,
+          reason: 'reserve_failed_unavailable',
+          createdAt: now
+        });
+        throw new Error('This listing is no longer available.');
+      }
+
+      const nextRemaining = quantityRemaining - qty;
+      tx.update(listingRef, {
+        quantityRemaining: nextRemaining,
+        status: nextRemaining === 0 ? 'reserved' : 'active',
+        updatedAt: now
+      });
+
+      tx.set(reservationRef, {
+        listingId,
+        claimerUid,
+        qty,
+        pickupCode: randomDigits(4),
+        status: 'reserved',
+        createdAt: now,
+        expiresAt: listing.expiresAt
+      });
+    });
+
+    const created = await reservationRef.get();
+    const data = created.data() || {};
+    return res.json({
+      ok: true,
+      reservation: {
+        id: created.id,
+        listingId: data.listingId || listingId,
+        claimerUid: data.claimerUid || claimerUid,
+        qty: Number(data.qty || qty),
+        pickupCode: data.pickupCode || '',
+        status: data.status || 'reserved',
+        createdAt: toIso(data.createdAt),
+        expiresAt: toIso(data.expiresAt)
+      }
+    });
+  } catch (error) {
+    const message = error?.message || 'Internal server error.';
+    const status = ['Listing not found.', 'This listing is no longer available.'].includes(
+      message
+    )
+      ? 400
+      : 500;
+    console.error('recipient reserve failed', error);
+    return res.status(status).json({ error: message });
+  }
 });
 
 app.post('/enterprise/listings/create', async (req, res) => {

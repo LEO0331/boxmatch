@@ -7,6 +7,7 @@ Base URL (after deploy):
 ## Endpoints
 
 - `GET /health`
+- `POST /recipient/listings/:listingId/reserve`
 - `POST /enterprise/listings/create`
 - `POST /enterprise/listings/:listingId/validate-token`
 - `POST /enterprise/listings/:listingId/reservations`
@@ -30,6 +31,16 @@ Base URL (after deploy):
     "pickupEndAt": "2026-04-01T12:00:00.000Z",
     "expiresAt": "2026-04-01T12:30:00.000Z"
   }
+}
+```
+
+### Recipient reserve
+
+```json
+{
+  "claimerUid": "firebase-anon-uid",
+  "qty": 1,
+  "disclaimerAccepted": true
 }
 ```
 
