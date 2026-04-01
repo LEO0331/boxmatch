@@ -1,9 +1,13 @@
+// coverage:ignore-file
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../../../app/app_scope.dart';
+import '../../../../core/i18n/app_strings.dart';
+import '../../../../core/i18n/language_menu_button.dart';
+import '../../../../core/widgets/load_error_view.dart';
 import '../../../surplus/domain/listing.dart';
 import '../../../surplus/domain/venue.dart';
 
@@ -82,116 +86,193 @@ class _VenuesMapPageState extends State<VenuesMapPage> {
 
   @override
   Widget build(BuildContext context) {
-    final repository = AppScope.of(context).repository;
+    final dependencies = AppScope.of(context);
+    final repository = dependencies.repository;
+    final favoritesStore = dependencies.favoritesStore;
     final provider = _tileProviderOptions[_providerIndex];
+    final s = AppStrings.of(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Venue Map')),
-      body: StreamBuilder<List<Venue>>(
-        stream: repository.watchVenues(),
-        builder: (context, venuesSnapshot) {
-          final venues = venuesSnapshot.data ?? const <Venue>[];
-
-          return StreamBuilder<List<Listing>>(
-            stream: repository.watchActiveListings(),
-            builder: (context, listingSnapshot) {
-              final listings = listingSnapshot.data ?? const <Listing>[];
-              final listingCountByVenue = <String, int>{};
-              for (final listing in listings) {
-                listingCountByVenue[listing.venueId] =
-                    (listingCountByVenue[listing.venueId] ?? 0) + 1;
+      appBar: AppBar(
+        title: Text(s.mapTitle),
+        actions: const [LanguageMenuButton()],
+      ),
+      body: AnimatedBuilder(
+        animation: favoritesStore,
+        builder: (context, _) {
+          return StreamBuilder<List<Venue>>(
+            stream: repository.watchVenues(),
+            builder: (context, venuesSnapshot) {
+              if (venuesSnapshot.hasError) {
+                return LoadErrorView(
+                  title: s.genericLoadErrorTitle,
+                  message: s.genericLoadErrorBody,
+                  retryLabel: s.retry,
+                  onRetry: () => setState(() {}),
+                );
               }
 
-              return Column(
-                children: [
-                  Material(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.surfaceContainerHighest,
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
-                        child: Text(
-                          'Map source: ${provider.name} (auto fallback enabled)',
-                          style: Theme.of(context).textTheme.bodySmall,
+              final venues = venuesSnapshot.data ?? const <Venue>[];
+
+              return StreamBuilder<List<Listing>>(
+                stream: repository.watchActiveListings(),
+                builder: (context, listingSnapshot) {
+                  if (listingSnapshot.hasError) {
+                    return LoadErrorView(
+                      title: s.genericLoadErrorTitle,
+                      message: s.genericLoadErrorBody,
+                      retryLabel: s.retry,
+                      onRetry: () => setState(() {}),
+                    );
+                  }
+
+                  final listings = listingSnapshot.data ?? const <Listing>[];
+                  final listingCountByVenue = <String, int>{};
+                  for (final listing in listings) {
+                    listingCountByVenue[listing.venueId] =
+                        (listingCountByVenue[listing.venueId] ?? 0) + 1;
+                  }
+
+                  final favoriteVenueIds = favoritesStore.favoriteVenueIds;
+                  final sortedVenues = venues.toList()
+                    ..sort((a, b) {
+                      final aFav = favoriteVenueIds.contains(a.id) ? 1 : 0;
+                      final bFav = favoriteVenueIds.contains(b.id) ? 1 : 0;
+                      if (aFav != bFav) {
+                        return bFav.compareTo(aFav);
+                      }
+                      return a.name.compareTo(b.name);
+                    });
+
+                  return Column(
+                    children: [
+                      Material(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerHighest,
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            child: Text(
+                              s.mapSource(provider.name),
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-                  Expanded(
-                    child: FlutterMap(
-                      options: MapOptions(
-                        initialCenter: venues.isNotEmpty
-                            ? LatLng(
-                                venues.first.latitude,
-                                venues.first.longitude,
-                              )
-                            : const LatLng(25.0478, 121.5319),
-                        initialZoom: 12,
-                        maxZoom: 18,
-                      ),
-                      children: [
-                        TileLayer(
-                          urlTemplate: provider.urlTemplate,
-                          fallbackUrl: provider.fallbackUrl,
-                          subdomains: provider.subdomains,
-                          userAgentPackageName: 'com.example.boxmatch',
-                          tileProvider: CancellableNetworkTileProvider(),
-                          errorTileCallback: (tile, error, stackTrace) =>
-                              _onTileError(),
-                        ),
-                        RichAttributionWidget(
-                          attributions: const [
-                            TextSourceAttribution('OpenStreetMap contributors'),
-                            TextSourceAttribution('CARTO'),
+                      Expanded(
+                        child: FlutterMap(
+                          options: MapOptions(
+                            initialCenter: venues.isNotEmpty
+                                ? LatLng(
+                                    venues.first.latitude,
+                                    venues.first.longitude,
+                                  )
+                                : const LatLng(25.0478, 121.5319),
+                            initialZoom: 12,
+                            maxZoom: 18,
+                          ),
+                          children: [
+                            TileLayer(
+                              urlTemplate: provider.urlTemplate,
+                              fallbackUrl: provider.fallbackUrl,
+                              subdomains: provider.subdomains,
+                              userAgentPackageName: 'com.example.boxmatch',
+                              tileProvider: CancellableNetworkTileProvider(),
+                              errorTileCallback: (tile, error, stackTrace) =>
+                                  _onTileError(),
+                            ),
+                            RichAttributionWidget(
+                              attributions: const [
+                                TextSourceAttribution(
+                                  'OpenStreetMap contributors',
+                                ),
+                                TextSourceAttribution('CARTO'),
+                              ],
+                            ),
+                            MarkerLayer(
+                              markers: sortedVenues
+                                  .map(
+                                    (venue) => Marker(
+                                      point: LatLng(
+                                        venue.latitude,
+                                        venue.longitude,
+                                      ),
+                                      width: 50,
+                                      height: 50,
+                                      child: Tooltip(
+                                        message:
+                                            '${venue.name}\n${s.activeCount(listingCountByVenue[venue.id] ?? 0)}',
+                                        child: Icon(
+                                          favoritesStore.isFavorite(venue.id)
+                                              ? Icons.place
+                                              : Icons.location_on,
+                                          size: 36,
+                                          color:
+                                              favoritesStore.isFavorite(
+                                                venue.id,
+                                              )
+                                              ? Theme.of(
+                                                  context,
+                                                ).colorScheme.error
+                                              : null,
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
+                            ),
                           ],
                         ),
-                        MarkerLayer(
-                          markers: venues
-                              .map(
-                                (venue) => Marker(
-                                  point: LatLng(
-                                    venue.latitude,
-                                    venue.longitude,
-                                  ),
-                                  width: 50,
-                                  height: 50,
-                                  child: Tooltip(
-                                    message:
-                                        '${venue.name}\n${listingCountByVenue[venue.id] ?? 0} active',
-                                    child: const Icon(
-                                      Icons.location_on,
-                                      size: 36,
+                      ),
+                      SizedBox(
+                        height: 220,
+                        child: ListView.builder(
+                          itemCount: sortedVenues.length,
+                          itemBuilder: (context, index) {
+                            final venue = sortedVenues[index];
+                            final count = listingCountByVenue[venue.id] ?? 0;
+                            final isFavorite = favoritesStore.isFavorite(
+                              venue.id,
+                            );
+                            return ListTile(
+                              leading: const Icon(Icons.place_outlined),
+                              title: Text(venue.name),
+                              subtitle: Text(venue.address),
+                              trailing: SizedBox(
+                                width: 120,
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.end,
+                                  children: [
+                                    Text(s.activeCount(count)),
+                                    IconButton(
+                                      onPressed: () => favoritesStore
+                                          .toggleFavorite(venue.id),
+                                      icon: Icon(
+                                        isFavorite
+                                            ? Icons.favorite
+                                            : Icons.favorite_border,
+                                        color: isFavorite
+                                            ? Theme.of(
+                                                context,
+                                              ).colorScheme.error
+                                            : null,
+                                      ),
                                     ),
-                                  ),
+                                  ],
                                 ),
-                              )
-                              .toList(),
+                              ),
+                            );
+                          },
                         ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(
-                    height: 220,
-                    child: ListView.builder(
-                      itemCount: venues.length,
-                      itemBuilder: (context, index) {
-                        final venue = venues[index];
-                        final count = listingCountByVenue[venue.id] ?? 0;
-                        return ListTile(
-                          leading: const Icon(Icons.place_outlined),
-                          title: Text(venue.name),
-                          subtitle: Text(venue.address),
-                          trailing: Text('$count active'),
-                        );
-                      },
-                    ),
-                  ),
-                ],
+                      ),
+                    ],
+                  );
+                },
               );
             },
           );

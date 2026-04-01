@@ -31,6 +31,10 @@ app.use((req, res, next) => corsMiddleware(req, res, next));
 const LISTINGS = 'listings';
 const RESERVATIONS = 'reservations';
 const ABUSE_SIGNALS = 'abuse_signals';
+const IDEMPOTENCY_KEYS = 'idempotency_keys';
+const KPI_EVENTS = 'kpi_events';
+const KPI_DAILY = 'kpi_daily';
+const KPI_SUMMARY = 'kpi_summary';
 
 function sha256(value) {
   return crypto.createHash('sha256').update(value, 'utf8').digest('hex');
@@ -47,6 +51,171 @@ function safeEqual(a, b) {
 function nowDate() {
   return new Date();
 }
+
+function utcDayKey(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  return date.toISOString().slice(0, 10);
+}
+
+function estimateKgFromItemType(itemType, qty) {
+  const normalized = String(itemType || '').toLowerCase();
+  const weightPerUnit =
+    normalized.includes('lunch') || normalized.includes('便當')
+      ? 0.45
+      : normalized.includes('drink') || normalized.includes('飲')
+      ? 0.3
+      : normalized.includes('snack') || normalized.includes('點心')
+      ? 0.2
+      : 0.35;
+  return Number((Math.max(0, Number(qty) || 0) * weightPerUnit).toFixed(3));
+}
+
+async function trackKpiEvent({
+  eventType,
+  listingId,
+  reservationId = null,
+  venueId = null,
+  itemType = '',
+  qty = 0,
+  requestId = null
+}) {
+  const now = nowDate();
+  const dayKey = utcDayKey(now);
+  const quantity = Math.max(0, Number(qty) || 0);
+  const estimatedMeals = quantity;
+  const estimatedKg = estimateKgFromItemType(itemType, quantity);
+  const increments = {
+    listing_created: {
+      listing_created_count: 1,
+      listed_qty_total: quantity
+    },
+    reservation_created: {
+      reservation_created_count: 1,
+      reserved_qty_total: quantity,
+      estimated_meals_reserved_total: estimatedMeals
+    },
+    pickup_confirmed: {
+      pickup_confirmed_count: 1,
+      pickup_qty_total: quantity,
+      estimated_meals_picked_up_total: estimatedMeals,
+      estimated_kg_diverted_total: estimatedKg
+    }
+  }[eventType];
+
+  if (!increments) {
+    return;
+  }
+
+  const incrementPatch = Object.fromEntries(
+    Object.entries(increments).map(([key, value]) => [key, admin.firestore.FieldValue.increment(value)])
+  );
+
+  const dailyRef = db.collection(KPI_DAILY).doc(dayKey);
+  const summaryRef = db.collection(KPI_SUMMARY).doc('global');
+
+  const writes = [
+    dailyRef.set(
+      {
+        dayKey,
+        updatedAt: now,
+        ...incrementPatch
+      },
+      { merge: true }
+    ),
+    summaryRef.set(
+      {
+        updatedAt: now,
+        ...incrementPatch
+      },
+      { merge: true }
+    )
+  ];
+
+  if (process.env.ENABLE_KPI_EVENT_LOGS === 'true') {
+    writes.push(
+      db.collection(KPI_EVENTS).add({
+        eventType,
+        listingId,
+        reservationId,
+        venueId,
+        itemType,
+        qty: quantity,
+        estimatedMeals,
+        estimatedKg,
+        requestId,
+        createdAt: now,
+        dayKey
+      })
+    );
+  }
+
+  await Promise.all(writes);
+}
+
+function logEvent(level, event, fields = {}) {
+  const entry = {
+    ts: nowDate().toISOString(),
+    level,
+    event,
+    service: 'boxmatch-server',
+    ...fields
+  };
+  const text = JSON.stringify(entry);
+
+  if (level === 'error') {
+    console.error(text);
+  } else {
+    console.log(text);
+  }
+}
+
+function logServerError(event, req, error, extra = {}) {
+  logEvent('error', event, {
+    requestId: req.requestId ?? null,
+    method: req.method ?? null,
+    path: req.originalUrl ?? null,
+    errorName: error?.name || 'Error',
+    errorMessage: error?.message || String(error),
+    stack: error?.stack || null,
+    ...extra
+  });
+}
+
+app.use((req, res, next) => {
+  req.requestId = crypto.randomUUID();
+  const startedAt = Date.now();
+  const originalJson = res.json.bind(res);
+
+  res.json = (body) => {
+    let payload = body;
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      payload = {
+        requestId: req.requestId,
+        ...payload
+      };
+    }
+    res.locals.responsePayload = payload;
+    return originalJson(payload);
+  };
+
+  res.on('finish', () => {
+    const latencyMs = Date.now() - startedAt;
+    const payload = res.locals.responsePayload || {};
+    const reasonCode = payload?.code || null;
+    const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
+
+    logEvent(level, 'http.request.completed', {
+      requestId: req.requestId,
+      method: req.method,
+      path: req.originalUrl,
+      status: res.statusCode,
+      latencyMs,
+      reasonCode
+    });
+  });
+
+  next();
+});
 
 function toIso(value) {
   if (!value) return null;
@@ -179,6 +348,15 @@ function randomDigits(length = 4) {
   return output;
 }
 
+function errorResponse(res, status, message, code, details) {
+  return res.status(status).json({
+    ok: false,
+    error: message,
+    code,
+    details: details ?? null
+  });
+}
+
 async function verifyTokenAndFetchListing(listingId, token) {
   if (!listingId || !token) {
     return { error: 'listingId and token are required.', code: 400 };
@@ -205,6 +383,10 @@ async function verifyTokenAndFetchListing(listingId, token) {
       reason: 'enterprise_token_mismatch',
       createdAt: nowDate()
     });
+    logEvent('warn', 'abuse.signal.created', {
+      listingId,
+      reasonCode: 'ABUSE_ENTERPRISE_TOKEN_MISMATCH'
+    });
     return { error: 'Invalid token.', code: 403 };
   }
 
@@ -221,19 +403,64 @@ app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
     const claimerUid = String(req.body?.claimerUid || '').trim();
     const qty = Number(req.body?.qty || 0);
     const disclaimerAccepted = req.body?.disclaimerAccepted === true;
+    const idempotencyKey = String(req.body?.idempotencyKey || '').trim();
 
     if (!claimerUid) {
-      return res.status(400).json({ error: 'claimerUid is required.' });
+      return errorResponse(
+        res,
+        400,
+        'claimerUid is required.',
+        'VALIDATION_CLAIMER_UID_REQUIRED'
+      );
     }
     if (!Number.isInteger(qty) || qty <= 0) {
-      return res.status(400).json({ error: 'qty must be a positive integer.' });
+      return errorResponse(
+        res,
+        400,
+        'qty must be a positive integer.',
+        'VALIDATION_QTY_INVALID'
+      );
     }
     if (!disclaimerAccepted) {
-      return res.status(400).json({ error: 'Please accept disclaimer first.' });
+      return errorResponse(
+        res,
+        400,
+        'Please accept disclaimer first.',
+        'VALIDATION_DISCLAIMER_REQUIRED'
+      );
+    }
+    if (!idempotencyKey) {
+      return errorResponse(
+        res,
+        400,
+        'idempotencyKey is required.',
+        'VALIDATION_IDEMPOTENCY_KEY_REQUIRED'
+      );
+    }
+    if (idempotencyKey.length > 128) {
+      return errorResponse(
+        res,
+        400,
+        'idempotencyKey is too long.',
+        'VALIDATION_IDEMPOTENCY_KEY_INVALID'
+      );
     }
 
     const reservationRef = db.collection(RESERVATIONS).doc();
-    await db.runTransaction(async (tx) => {
+    const idempotencyDocId = sha256(`${claimerUid}|${listingId}|${idempotencyKey}`);
+    const idempotencyRef = db.collection(IDEMPOTENCY_KEYS).doc(idempotencyDocId);
+
+    const reserveResult = await db.runTransaction(async (tx) => {
+      const idempotencySnap = await tx.get(idempotencyRef);
+      if (idempotencySnap.exists) {
+        const data = idempotencySnap.data() || {};
+        const cached = data.reservation;
+        if (data.status === 'succeeded' && cached && typeof cached === 'object') {
+          return { idempotentReplay: true, reservation: cached, metricContext: null };
+        }
+        throw new Error('Idempotency key conflict.');
+      }
+
       const listingRef = db.collection(LISTINGS).doc(listingId);
       const listingSnap = await tx.get(listingRef);
       if (!listingSnap.exists) {
@@ -267,41 +494,98 @@ app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
         updatedAt: now
       });
 
+      const pickupCode = randomDigits(4);
       tx.set(reservationRef, {
         listingId,
         claimerUid,
         qty,
-        pickupCode: randomDigits(4),
+        pickupCode,
         status: 'reserved',
         createdAt: now,
         expiresAt: listing.expiresAt
       });
+
+      const reservationPayload = {
+        id: reservationRef.id,
+        listingId,
+        claimerUid,
+        qty,
+        pickupCode,
+        status: 'reserved',
+        createdAt: now.toISOString(),
+        expiresAt: toIso(listing.expiresAt)
+      };
+      tx.set(idempotencyRef, {
+        listingId,
+        claimerUid,
+        idempotencyKeyHash: idempotencyDocId,
+        status: 'succeeded',
+        reservation: reservationPayload,
+        createdAt: now,
+        updatedAt: now
+      });
+
+      return {
+        idempotentReplay: false,
+        reservation: reservationPayload,
+        metricContext: {
+          venueId: listing.venueId || null,
+          itemType: listing.itemType || '',
+          qty
+        }
+      };
     });
 
-    const created = await reservationRef.get();
-    const data = created.data() || {};
+    if (reserveResult.idempotentReplay) {
+      logEvent('info', 'recipient.reserve.idempotent_replay', {
+        requestId: req.requestId,
+        listingId,
+        claimerUid
+      });
+    } else {
+      try {
+        await trackKpiEvent({
+          eventType: 'reservation_created',
+          listingId,
+          reservationId: reserveResult.reservation?.id || null,
+          venueId: reserveResult.metricContext?.venueId || null,
+          itemType: reserveResult.metricContext?.itemType || '',
+          qty: reserveResult.metricContext?.qty || 0,
+          requestId: req.requestId
+        });
+      } catch (metricError) {
+        logServerError('kpi.event.write.failed', req, metricError, {
+          reasonCode: 'KPI_WRITE_FAILED_RESERVATION_CREATED'
+        });
+      }
+    }
+
     return res.json({
       ok: true,
-      reservation: {
-        id: created.id,
-        listingId: data.listingId || listingId,
-        claimerUid: data.claimerUid || claimerUid,
-        qty: Number(data.qty || qty),
-        pickupCode: data.pickupCode || '',
-        status: data.status || 'reserved',
-        createdAt: toIso(data.createdAt),
-        expiresAt: toIso(data.expiresAt)
-      }
+      code: reserveResult.idempotentReplay
+        ? 'RESERVE_SUCCESS_IDEMPOTENT_REPLAY'
+        : 'RESERVE_SUCCESS',
+      idempotentReplay: reserveResult.idempotentReplay,
+      reservation: reserveResult.reservation
     });
   } catch (error) {
     const message = error?.message || 'Internal server error.';
-    const status = ['Listing not found.', 'This listing is no longer available.'].includes(
-      message
-    )
+    const status = [
+      'Listing not found.',
+      'This listing is no longer available.',
+      'Idempotency key conflict.'
+    ].includes(message)
       ? 400
       : 500;
-    console.error('recipient reserve failed', error);
-    return res.status(status).json({ error: message });
+    const reasonCode = message === 'Idempotency key conflict.'
+      ? 'IDEMPOTENCY_KEY_CONFLICT'
+      : status == 400
+      ? 'RESERVE_FAILED_BUSINESS_RULE'
+      : 'RESERVE_FAILED_INTERNAL';
+    logServerError('recipient.reserve.failed', req, error, {
+      reasonCode
+    });
+    return errorResponse(res, status, message, reasonCode);
   }
 });
 
@@ -309,7 +593,13 @@ app.post('/enterprise/listings/create', async (req, res) => {
   try {
     const { errors, payload } = validateAndBuildCreate(req.body?.data || {});
     if (errors.length > 0) {
-      return res.status(400).json({ error: 'Validation failed.', details: errors });
+      return errorResponse(
+        res,
+        400,
+        'Validation failed.',
+        'VALIDATION_CREATE_LISTING_FAILED',
+        errors
+      );
     }
 
     const token = crypto.randomBytes(24).toString('base64url');
@@ -336,10 +626,32 @@ app.post('/enterprise/listings/create', async (req, res) => {
       updatedAt: now
     });
 
-    return res.json({ ok: true, listingId: listingRef.id, token });
+    try {
+      await trackKpiEvent({
+        eventType: 'listing_created',
+        listingId: listingRef.id,
+        venueId: payload.venueId || null,
+        itemType: payload.itemType || '',
+        qty: payload.quantityTotal || 0,
+        requestId: req.requestId
+      });
+    } catch (metricError) {
+      logServerError('kpi.event.write.failed', req, metricError, {
+        reasonCode: 'KPI_WRITE_FAILED_LISTING_CREATED'
+      });
+    }
+
+    return res.json({ ok: true, code: 'CREATE_LISTING_SUCCESS', listingId: listingRef.id, token });
   } catch (error) {
-    console.error('create listing failed', error);
-    return res.status(500).json({ error: 'Internal server error.' });
+    logServerError('enterprise.listing.create.failed', req, error, {
+      reasonCode: 'CREATE_LISTING_FAILED_INTERNAL'
+    });
+    return errorResponse(
+      res,
+      500,
+      'Internal server error.',
+      'CREATE_LISTING_FAILED_INTERNAL'
+    );
   }
 });
 
@@ -349,12 +661,24 @@ app.post('/enterprise/listings/:listingId/validate-token', async (req, res) => {
     const token = req.body?.token;
     const verified = await verifyTokenAndFetchListing(listingId, token);
     if (verified.error) {
-      return res.status(verified.code).json({ error: verified.error, ok: false });
+      return errorResponse(
+        res,
+        verified.code,
+        verified.error,
+        'VALIDATE_TOKEN_FAILED'
+      );
     }
-    return res.json({ ok: true, listingId });
+    return res.json({ ok: true, code: 'VALIDATE_TOKEN_SUCCESS', listingId });
   } catch (error) {
-    console.error('validate token failed', error);
-    return res.status(500).json({ error: 'Internal server error.', ok: false });
+    logServerError('enterprise.token.validate.failed', req, error, {
+      reasonCode: 'VALIDATE_TOKEN_FAILED_INTERNAL'
+    });
+    return errorResponse(
+      res,
+      500,
+      'Internal server error.',
+      'VALIDATE_TOKEN_FAILED_INTERNAL'
+    );
   }
 });
 
@@ -364,7 +688,12 @@ app.post('/enterprise/listings/:listingId/reservations', async (req, res) => {
     const token = req.body?.token;
     const verified = await verifyTokenAndFetchListing(listingId, token);
     if (verified.error) {
-      return res.status(verified.code).json({ error: verified.error, ok: false });
+      return errorResponse(
+        res,
+        verified.code,
+        verified.error,
+        'LIST_RESERVATIONS_FORBIDDEN'
+      );
     }
 
     const snap = await db
@@ -387,10 +716,17 @@ app.post('/enterprise/listings/:listingId/reservations', async (req, res) => {
       };
     });
 
-    return res.json({ ok: true, listingId, reservations });
+    return res.json({ ok: true, code: 'LIST_RESERVATIONS_SUCCESS', listingId, reservations });
   } catch (error) {
-    console.error('list reservations failed', error);
-    return res.status(500).json({ error: 'Internal server error.', ok: false });
+    logServerError('enterprise.reservation.list.failed', req, error, {
+      reasonCode: 'LIST_RESERVATIONS_FAILED_INTERNAL'
+    });
+    return errorResponse(
+      res,
+      500,
+      'Internal server error.',
+      'LIST_RESERVATIONS_FAILED_INTERNAL'
+    );
   }
 });
 
@@ -401,15 +737,26 @@ app.post('/enterprise/listings/:listingId/update', async (req, res) => {
 
     const verified = await verifyTokenAndFetchListing(listingId, token);
     if (verified.error) {
-      return res.status(verified.code).json({ error: verified.error });
+      return errorResponse(res, verified.code, verified.error, 'UPDATE_LISTING_FORBIDDEN');
     }
 
     const { errors, payload } = validateAndBuildUpdate(req.body?.data || {});
     if (errors.length > 0) {
-      return res.status(400).json({ error: 'Validation failed.', details: errors });
+      return errorResponse(
+        res,
+        400,
+        'Validation failed.',
+        'VALIDATION_UPDATE_LISTING_FAILED',
+        errors
+      );
     }
     if (Object.keys(payload).length === 0) {
-      return res.status(400).json({ error: 'No valid update fields provided.' });
+      return errorResponse(
+        res,
+        400,
+        'No valid update fields provided.',
+        'VALIDATION_UPDATE_LISTING_EMPTY'
+      );
     }
 
     const existing = verified.data;
@@ -425,10 +772,17 @@ app.post('/enterprise/listings/:listingId/update', async (req, res) => {
     };
 
     await verified.ref.update(updateDoc);
-    return res.json({ ok: true, listingId, updatedFields: Object.keys(updateDoc) });
+    return res.json({ ok: true, code: 'UPDATE_LISTING_SUCCESS', listingId, updatedFields: Object.keys(updateDoc) });
   } catch (error) {
-    console.error('update listing failed', error);
-    return res.status(500).json({ error: 'Internal server error.' });
+    logServerError('enterprise.listing.update.failed', req, error, {
+      reasonCode: 'UPDATE_LISTING_FAILED_INTERNAL'
+    });
+    return errorResponse(
+      res,
+      500,
+      'Internal server error.',
+      'UPDATE_LISTING_FAILED_INTERNAL'
+    );
   }
 });
 
@@ -439,7 +793,7 @@ app.post('/enterprise/listings/:listingId/rotate-token', async (req, res) => {
 
     const verified = await verifyTokenAndFetchListing(listingId, token);
     if (verified.error) {
-      return res.status(verified.code).json({ error: verified.error });
+      return errorResponse(res, verified.code, verified.error, 'ROTATE_TOKEN_FORBIDDEN');
     }
 
     const newToken = crypto.randomBytes(24).toString('base64url');
@@ -448,10 +802,17 @@ app.post('/enterprise/listings/:listingId/rotate-token', async (req, res) => {
       updatedAt: nowDate()
     });
 
-    return res.json({ ok: true, listingId, token: newToken });
+    return res.json({ ok: true, code: 'ROTATE_TOKEN_SUCCESS', listingId, token: newToken });
   } catch (error) {
-    console.error('rotate token failed', error);
-    return res.status(500).json({ error: 'Internal server error.' });
+    logServerError('enterprise.token.rotate.failed', req, error, {
+      reasonCode: 'ROTATE_TOKEN_FAILED_INTERNAL'
+    });
+    return errorResponse(
+      res,
+      500,
+      'Internal server error.',
+      'ROTATE_TOKEN_FAILED_INTERNAL'
+    );
   }
 });
 
@@ -462,7 +823,7 @@ app.post('/enterprise/listings/:listingId/revoke-token', async (req, res) => {
 
     const verified = await verifyTokenAndFetchListing(listingId, token);
     if (verified.error) {
-      return res.status(verified.code).json({ error: verified.error });
+      return errorResponse(res, verified.code, verified.error, 'REVOKE_TOKEN_FORBIDDEN');
     }
 
     await verified.ref.update({
@@ -470,10 +831,17 @@ app.post('/enterprise/listings/:listingId/revoke-token', async (req, res) => {
       updatedAt: nowDate()
     });
 
-    return res.json({ ok: true, listingId, revoked: true });
+    return res.json({ ok: true, code: 'REVOKE_TOKEN_SUCCESS', listingId, revoked: true });
   } catch (error) {
-    console.error('revoke token failed', error);
-    return res.status(500).json({ error: 'Internal server error.' });
+    logServerError('enterprise.token.revoke.failed', req, error, {
+      reasonCode: 'REVOKE_TOKEN_FAILED_INTERNAL'
+    });
+    return errorResponse(
+      res,
+      500,
+      'Internal server error.',
+      'REVOKE_TOKEN_FAILED_INTERNAL'
+    );
   }
 });
 
@@ -483,15 +851,20 @@ app.post('/enterprise/listings/:listingId/confirm-pickup', async (req, res) => {
     const { token, reservationId, pickupCode } = req.body || {};
 
     if (!reservationId || !pickupCode) {
-      return res.status(400).json({ error: 'reservationId and pickupCode are required.' });
+      return errorResponse(
+        res,
+        400,
+        'reservationId and pickupCode are required.',
+        'VALIDATION_CONFIRM_PICKUP_REQUIRED_FIELDS'
+      );
     }
 
     const verified = await verifyTokenAndFetchListing(listingId, token);
     if (verified.error) {
-      return res.status(verified.code).json({ error: verified.error });
+      return errorResponse(res, verified.code, verified.error, 'CONFIRM_PICKUP_FORBIDDEN');
     }
 
-    await db.runTransaction(async (tx) => {
+    const confirmContext = await db.runTransaction(async (tx) => {
       const listingRef = db.collection(LISTINGS).doc(listingId);
       const reservationRef = db.collection(RESERVATIONS).doc(reservationId);
 
@@ -531,9 +904,37 @@ app.post('/enterprise/listings/:listingId/confirm-pickup', async (req, res) => {
           updatedAt: nowDate()
         });
       }
+
+      return {
+        venueId: listingData.venueId || null,
+        itemType: listingData.itemType || '',
+        qty: Number(reservationData.qty || 0)
+      };
     });
 
-    return res.json({ ok: true, listingId, reservationId, confirmed: true });
+    try {
+      await trackKpiEvent({
+        eventType: 'pickup_confirmed',
+        listingId,
+        reservationId,
+        venueId: confirmContext?.venueId || null,
+        itemType: confirmContext?.itemType || '',
+        qty: confirmContext?.qty || 0,
+        requestId: req.requestId
+      });
+    } catch (metricError) {
+      logServerError('kpi.event.write.failed', req, metricError, {
+        reasonCode: 'KPI_WRITE_FAILED_PICKUP_CONFIRMED'
+      });
+    }
+
+    return res.json({
+      ok: true,
+      code: 'CONFIRM_PICKUP_SUCCESS',
+      listingId,
+      reservationId,
+      confirmed: true
+    });
   } catch (error) {
     const message = error?.message || 'Internal server error.';
     const status = [
@@ -545,8 +946,19 @@ app.post('/enterprise/listings/:listingId/confirm-pickup', async (req, res) => {
     ].includes(message)
       ? 400
       : 500;
-    console.error('confirm pickup failed', error);
-    return res.status(status).json({ error: message });
+    logServerError('enterprise.pickup.confirm.failed', req, error, {
+      statusHint: status,
+      reasonCode:
+        status == 400
+          ? 'CONFIRM_PICKUP_FAILED_BUSINESS_RULE'
+          : 'CONFIRM_PICKUP_FAILED_INTERNAL'
+    });
+    return errorResponse(
+      res,
+      status,
+      message,
+      status == 400 ? 'CONFIRM_PICKUP_FAILED_BUSINESS_RULE' : 'CONFIRM_PICKUP_FAILED_INTERNAL'
+    );
   }
 });
 

@@ -1,5 +1,7 @@
 # Boxmatch
 
+![Coverage Gate](https://img.shields.io/badge/Coverage%20Gate-80%25%20minimum-blue)
+
 Boxmatch is a lightweight surplus-food matching app for exhibitions.
 Enterprises can post leftover lunchboxes or drinks, and nearby users can reserve for pickup.
 
@@ -20,6 +22,9 @@ Collections used:
 - `listings`
 - `reservations`
 - `abuse_signals`
+- `kpi_daily`
+- `kpi_summary`
+- `kpi_events` (optional, controlled by backend env)
 
 See `firestore.rules` and `firestore.indexes.json` for starter Firebase config.
 
@@ -51,9 +56,43 @@ Set your API URL when building/running Flutter:
 flutter run --dart-define=BOXMATCH_API_BASE_URL=https://<your-render-service>.onrender.com
 ```
 
+### KPI Export (weekly/monthly report)
+
+From repo root:
+
+```bash
+cd server
+npm run export:kpi:7d
+npm run export:kpi:30d
+```
+
+CSV files are generated under `/Users/Leo/Documents/boxmatch/reports`.
+
 ## Testing
 
 ```bash
 flutter analyze
 flutter test
 ```
+
+### Coverage Gate Rule
+
+- CI workflow: `.github/workflows/flutter-ci.yml`
+- Rule: overall coverage is calculated from `coverage/lcov.info`.
+- Fail condition: CI fails when overall coverage is **below 80%**.
+
+## Release Smoke + Gate
+
+```bash
+/Users/Leo/Documents/boxmatch/scripts/smoke_test.sh
+```
+
+Production deploy gate workflow:
+
+- `.github/workflows/release-checklist-gate.yml`
+- checklist doc: `docs/ops/release-checklist.md`
+
+## Execution Board
+
+- 30-day POC board for GitHub Wiki:
+  - [docs/wiki/30-day-poc-board.md](https://github.com/LEO0331/boxmatch/wiki/30%E2%80%90Day-POC-Execution-Plan-(Free%E2%80%90Tier-First))

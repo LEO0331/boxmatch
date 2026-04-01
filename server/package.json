@@ -8,7 +8,9 @@
   "scripts": {
     "lint": "node --check index.js",
     "start": "node index.js",
-    "dev": "node index.js"
+    "dev": "node index.js",
+    "export:kpi:7d": "node ../scripts/export_kpi_csv.js 7",
+    "export:kpi:30d": "node ../scripts/export_kpi_csv.js 30"
   },
   "dependencies": {
     "cors": "^2.8.5",

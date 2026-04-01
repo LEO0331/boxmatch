@@ -1,12 +1,71 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../../app/app_scope.dart';
+import '../../../../core/i18n/app_strings.dart';
+import '../../../../core/i18n/language_menu_button.dart';
+import '../../../../core/widgets/load_error_view.dart';
 import '../../../../core/utils/date_time_formatters.dart';
 import '../../../surplus/domain/listing_input.dart';
 import '../../../surplus/domain/listing_visibility.dart';
 import '../../../surplus/domain/reservation.dart';
 import '../../../surplus/domain/surplus_exceptions.dart';
 import '../../../surplus/domain/venue.dart';
+
+class _QuickPostTemplate {
+  const _QuickPostTemplate({
+    required this.id,
+    required this.nameEn,
+    required this.nameZh,
+    required this.itemType,
+    required this.description,
+    required this.defaultQuantity,
+    required this.pickupDurationMinutes,
+    required this.expireAfterMinutes,
+  });
+
+  final String id;
+  final String nameEn;
+  final String nameZh;
+  final String itemType;
+  final String description;
+  final int defaultQuantity;
+  final int pickupDurationMinutes;
+  final int expireAfterMinutes;
+}
+
+const _quickTemplates = <_QuickPostTemplate>[
+  _QuickPostTemplate(
+    id: 'lunchbox',
+    nameEn: 'Lunchbox Batch',
+    nameZh: '便當批次',
+    itemType: 'Lunchbox',
+    description: 'Fresh boxed meal from booth surplus.',
+    defaultQuantity: 20,
+    pickupDurationMinutes: 90,
+    expireAfterMinutes: 120,
+  ),
+  _QuickPostTemplate(
+    id: 'drinks',
+    nameEn: 'Bottled Drinks',
+    nameZh: '瓶裝飲料',
+    itemType: 'Drink',
+    description: 'Sealed bottled drinks, room temperature.',
+    defaultQuantity: 30,
+    pickupDurationMinutes: 120,
+    expireAfterMinutes: 180,
+  ),
+  _QuickPostTemplate(
+    id: 'snack',
+    nameEn: 'Snack Packs',
+    nameZh: '點心包',
+    itemType: 'Snack Pack',
+    description: 'Unopened snack package from event counter.',
+    defaultQuantity: 15,
+    pickupDurationMinutes: 90,
+    expireAfterMinutes: 150,
+  ),
+];
 
 class EnterpriseListingPage extends StatefulWidget {
   const EnterpriseListingPage({super.key, this.listingId, this.token});
@@ -28,6 +87,7 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
   final Map<String, TextEditingController> _pickupCodeControllers = {};
 
   String? _selectedVenueId;
+  String? _selectedTemplateId;
   DateTime _pickupStartAt = DateTime.now().add(const Duration(minutes: 20));
   DateTime _pickupEndAt = DateTime.now().add(const Duration(hours: 2));
   DateTime _expiresAt = DateTime.now().add(
@@ -112,6 +172,23 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
       _pickupEndAt = listing.pickupEndAt;
       _expiresAt = listing.expiresAt;
       _disclaimerAccepted = true;
+    });
+  }
+
+  void _applyTemplate(_QuickPostTemplate template) {
+    final now = DateTime.now();
+    setState(() {
+      _selectedTemplateId = template.id;
+      _itemTypeController.text = template.itemType;
+      _descriptionController.text = template.description;
+      _quantityController.text = template.defaultQuantity.toString();
+      _pickupStartAt = now.add(const Duration(minutes: 20));
+      _pickupEndAt = _pickupStartAt.add(
+        Duration(minutes: template.pickupDurationMinutes),
+      );
+      _expiresAt = _pickupStartAt.add(
+        Duration(minutes: template.expireAfterMinutes),
+      );
     });
   }
 
@@ -211,10 +288,64 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
     return uri.toString();
   }
 
+  Future<void> _copyEditLink() async {
+    final link = _createdEditLink;
+    if (link == null || link.isEmpty) {
+      return;
+    }
+
+    await Clipboard.setData(ClipboardData(text: link));
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Secure edit link copied to clipboard.')),
+    );
+  }
+
+  Future<bool> _showConfirmDialog({
+    required String title,
+    required String content,
+    required String confirmText,
+  }) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(content),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(confirmText),
+          ),
+        ],
+      ),
+    );
+
+    return result ?? false;
+  }
+
   Future<void> _rotateToken() async {
     final listingId = widget.listingId;
     final token = _editToken;
     if (listingId == null || token == null || token.isEmpty) {
+      return;
+    }
+
+    final allowed = await _showConfirmDialog(
+      title: 'Rotate edit token?',
+      content:
+          'Your old edit link will stop working immediately. Copy and store the new one safely.',
+      confirmText: 'Rotate',
+    );
+    if (!allowed) {
+      return;
+    }
+    if (!mounted) {
       return;
     }
 
@@ -253,6 +384,19 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
     final listingId = widget.listingId;
     final token = _editToken;
     if (listingId == null || token == null || token.isEmpty) {
+      return;
+    }
+
+    final allowed = await _showConfirmDialog(
+      title: 'Revoke edit token?',
+      content:
+          'This action cannot be undone. You will lose edit access from this link.',
+      confirmText: 'Revoke',
+    );
+    if (!allowed) {
+      return;
+    }
+    if (!mounted) {
       return;
     }
 
@@ -366,14 +510,27 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
   @override
   Widget build(BuildContext context) {
     final repository = AppScope.of(context).repository;
+    final s = AppStrings.of(context);
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_isEditMode ? 'Edit listing' : 'Post listing'),
+        title: Text(
+          _isEditMode ? s.enterpriseEditTitle : s.enterprisePostTitle,
+        ),
+        actions: const [LanguageMenuButton()],
       ),
       body: StreamBuilder<List<Venue>>(
         stream: repository.watchVenues(),
         builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return LoadErrorView(
+              title: s.genericLoadErrorTitle,
+              message: s.genericLoadErrorBody,
+              retryLabel: s.retry,
+              onRetry: () => setState(() {}),
+            );
+          }
+
           final venues = snapshot.data ?? const <Venue>[];
 
           if (_selectedVenueId == null && venues.isNotEmpty) {
@@ -391,21 +548,8 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
                     child: Text(_errorMessage!),
                   ),
                 ),
-              if (_createdEditLink != null)
-                Card(
-                  color: Theme.of(context).colorScheme.surfaceContainerHigh,
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Save this edit link securely:'),
-                        const SizedBox(height: 8),
-                        SelectableText(_createdEditLink!),
-                      ],
-                    ),
-                  ),
-                ),
+              if (_createdEditLink != null) _buildSecureLinkCard(context),
+              if (!_isEditMode) _buildTemplateCard(context),
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -560,9 +704,7 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
                                     _disclaimerAccepted = value ?? false;
                                   });
                                 },
-                          title: const Text(
-                            'I understand this platform only matches donors and recipients and does not guarantee food safety.',
-                          ),
+                          title: Text(s.reserveDisclaimer),
                         ),
                         const SizedBox(height: 12),
                         FilledButton.icon(
@@ -587,37 +729,7 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
               ),
               if (_isEditMode && _errorMessage == null) ...[
                 const SizedBox(height: 12),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Token controls'),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          children: [
-                            OutlinedButton.icon(
-                              onPressed: _busy || _tokenRevoked
-                                  ? null
-                                  : _rotateToken,
-                              icon: const Icon(Icons.key_outlined),
-                              label: const Text('Rotate token'),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: _busy || _tokenRevoked
-                                  ? null
-                                  : _revokeToken,
-                              icon: const Icon(Icons.block_outlined),
-                              label: const Text('Revoke token'),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+                _buildTokenControlsCard(),
                 const SizedBox(height: 12),
                 if ((_editToken ?? '').isNotEmpty)
                   _ReservationAdminSection(
@@ -630,6 +742,108 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
             ],
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildTemplateCard(BuildContext context) {
+    final isZh = AppScope.of(context).localeController.isZhTw;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              isZh ? '快速模板（加速發佈）' : 'Quick templates (faster post)',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _quickTemplates
+                  .map(
+                    (template) => ChoiceChip(
+                      selected: _selectedTemplateId == template.id,
+                      onSelected: (_) => _applyTemplate(template),
+                      label: Text(isZh ? template.nameZh : template.nameEn),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSecureLinkCard(BuildContext context) {
+    final isZh = AppScope.of(context).localeController.isZhTw;
+
+    return Card(
+      color: Theme.of(context).colorScheme.surfaceContainerHigh,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(isZh ? '請妥善保存此編輯連結：' : 'Save this edit link securely:'),
+            const SizedBox(height: 8),
+            SelectableText(_createdEditLink!),
+            const SizedBox(height: 8),
+            Text(
+              isZh
+                  ? '安全提醒：此連結即擁有編輯權限，請勿公開分享。'
+                  : 'Security note: anyone with this link can edit your listing.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _copyEditLink,
+              icon: const Icon(Icons.copy_all_outlined),
+              label: Text(isZh ? '複製連結' : 'Copy link'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTokenControlsCard() {
+    final isZh = AppScope.of(context).localeController.isZhTw;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(isZh ? 'Token 安全控管' : 'Token controls'),
+            const SizedBox(height: 6),
+            Text(
+              isZh
+                  ? '建議活動結束後立即 Rotate 或 Revoke，降低外流風險。'
+                  : 'Rotate or revoke after event day to reduce token leakage risk.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _busy || _tokenRevoked ? null : _rotateToken,
+                  icon: const Icon(Icons.key_outlined),
+                  label: Text(isZh ? 'Rotate token' : 'Rotate token'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _busy || _tokenRevoked ? null : _revokeToken,
+                  icon: const Icon(Icons.block_outlined),
+                  label: Text(isZh ? 'Revoke token' : 'Revoke token'),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -651,6 +865,7 @@ class _ReservationAdminSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final repository = AppScope.of(context).repository;
+    final s = AppStrings.of(context);
 
     return Card(
       child: Padding(
@@ -658,7 +873,7 @@ class _ReservationAdminSection extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Reservations'),
+            Text(s.reservationSection),
             const SizedBox(height: 8),
             StreamBuilder<List<Reservation>>(
               stream: repository.watchReservationsForListing(
@@ -675,7 +890,7 @@ class _ReservationAdminSection extends StatelessWidget {
                   return Text('Unable to load reservations: ${snapshot.error}');
                 }
                 if (reservations.isEmpty) {
-                  return const Text('No reservations yet.');
+                  return Text(s.noReservationsYet);
                 }
 
                 return Column(
@@ -694,7 +909,9 @@ class _ReservationAdminSection extends StatelessWidget {
                             Text(
                               'Reservation ${reservation.id.substring(0, 6)}',
                             ),
-                            Text('Status: ${reservation.status.name}'),
+                            Text(
+                              'Status: ${s.statusLabel(_toLabel(reservation.status))}',
+                            ),
                             Text('Qty: ${reservation.qty}'),
                             const SizedBox(height: 8),
                             TextField(
@@ -724,5 +941,18 @@ class _ReservationAdminSection extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  AppStatusLabel _toLabel(ReservationStatus status) {
+    switch (status) {
+      case ReservationStatus.reserved:
+        return AppStatusLabel.reserved;
+      case ReservationStatus.completed:
+        return AppStatusLabel.completed;
+      case ReservationStatus.expired:
+        return AppStatusLabel.expired;
+      case ReservationStatus.cancelled:
+        return AppStatusLabel.cancelled;
+    }
   }
 }
