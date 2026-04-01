@@ -1,8 +1,8 @@
-# Boxmatch Functions API
+# Boxmatch Server API
 
-Base URL (after deploy):
+Base URL (after deploy on Render):
 
-`https://asia-east1-<project-id>.cloudfunctions.net/api`
+`https://<your-render-service>.onrender.com`
 
 ## Endpoints
 
@@ -85,7 +85,12 @@ Base URL (after deploy):
 - API hashes (`SHA-256`) and verifies against Firestore `editTokenHash`.
 - Firestore writes are done by Firebase Admin SDK (server-side only).
 
-## GitHub Actions secrets needed
+## Render environment variables needed
 
-- `FIREBASE_TOKEN`: output from `firebase login:ci`
-- `FIREBASE_PROJECT_ID`: e.g. `boxmatch-e2224`
+- `FIREBASE_PROJECT_ID`
+- `FIREBASE_CLIENT_EMAIL`
+- `FIREBASE_PRIVATE_KEY` (use raw key with `\n` escaped)
+
+## GitHub Actions secret needed
+
+- `RENDER_DEPLOY_HOOK_URL` (from Render service settings)

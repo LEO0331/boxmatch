@@ -2,10 +2,23 @@ const crypto = require('crypto');
 const cors = require('cors');
 const express = require('express');
 const admin = require('firebase-admin');
-const { onRequest } = require('firebase-functions/v2/https');
 
 if (!admin.apps.length) {
-  admin.initializeApp();
+  const projectId = process.env.FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+
+  if (projectId && clientEmail && privateKey) {
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId,
+        clientEmail,
+        privateKey: privateKey.replace(/\\n/g, '\n')
+      })
+    });
+  } else {
+    admin.initializeApp();
+  }
 }
 
 const db = admin.firestore();
@@ -199,7 +212,7 @@ async function verifyTokenAndFetchListing(listingId, token) {
 }
 
 app.get('/health', async (_req, res) => {
-  res.json({ ok: true, service: 'boxmatch-functions', ts: nowDate().toISOString() });
+  res.json({ ok: true, service: 'boxmatch-server', ts: nowDate().toISOString() });
 });
 
 app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
@@ -537,13 +550,7 @@ app.post('/enterprise/listings/:listingId/confirm-pickup', async (req, res) => {
   }
 });
 
-exports.api = onRequest(
-  {
-    region: 'asia-east1',
-    cors: true,
-    invoker: 'public',
-    timeoutSeconds: 30,
-    memory: '256MiB'
-  },
-  app
-);
+const port = Number(process.env.PORT || 8080);
+app.listen(port, () => {
+  console.log(`boxmatch server listening on ${port}`);
+});

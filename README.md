@@ -41,6 +41,16 @@ To enable Firebase mode in production:
 2. Add platform configs (`google-services.json`, `GoogleService-Info.plist`, etc.).
 3. Deploy Firestore rules/indexes.
 
+## API Backend (Spark-friendly)
+
+This project now uses a standalone Node API in `server/` (Render deploy) instead of Firebase Functions, so you can stay on Firebase Spark plan.
+
+Set your API URL when building/running Flutter:
+
+```bash
+flutter run --dart-define=BOXMATCH_API_BASE_URL=https://<your-render-service>.onrender.com
+```
+
 ## Testing
 
 ```bash

@@ -19,10 +19,9 @@ Future<AppDependencies> bootstrapApp() async {
     final customApiBaseUrl = const String.fromEnvironment(
       'BOXMATCH_API_BASE_URL',
     );
-    final projectId = Firebase.app().options.projectId;
     final apiBaseUrl = customApiBaseUrl.isNotEmpty
         ? customApiBaseUrl
-        : 'https://asia-east1-$projectId.cloudfunctions.net/api';
+        : 'https://boxmatch-api.onrender.com';
 
     final repository = FirestoreSurplusRepository(
       FirebaseFirestore.instance,
