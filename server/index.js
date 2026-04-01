@@ -32,6 +32,9 @@ const LISTINGS = 'listings';
 const RESERVATIONS = 'reservations';
 const ABUSE_SIGNALS = 'abuse_signals';
 const IDEMPOTENCY_KEYS = 'idempotency_keys';
+const KPI_EVENTS = 'kpi_events';
+const KPI_DAILY = 'kpi_daily';
+const KPI_SUMMARY = 'kpi_summary';
 
 function sha256(value) {
   return crypto.createHash('sha256').update(value, 'utf8').digest('hex');
@@ -47,6 +50,106 @@ function safeEqual(a, b) {
 
 function nowDate() {
   return new Date();
+}
+
+function utcDayKey(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  return date.toISOString().slice(0, 10);
+}
+
+function estimateKgFromItemType(itemType, qty) {
+  const normalized = String(itemType || '').toLowerCase();
+  const weightPerUnit =
+    normalized.includes('lunch') || normalized.includes('便當')
+      ? 0.45
+      : normalized.includes('drink') || normalized.includes('飲')
+      ? 0.3
+      : normalized.includes('snack') || normalized.includes('點心')
+      ? 0.2
+      : 0.35;
+  return Number((Math.max(0, Number(qty) || 0) * weightPerUnit).toFixed(3));
+}
+
+async function trackKpiEvent({
+  eventType,
+  listingId,
+  reservationId = null,
+  venueId = null,
+  itemType = '',
+  qty = 0,
+  requestId = null
+}) {
+  const now = nowDate();
+  const dayKey = utcDayKey(now);
+  const quantity = Math.max(0, Number(qty) || 0);
+  const estimatedMeals = quantity;
+  const estimatedKg = estimateKgFromItemType(itemType, quantity);
+  const increments = {
+    listing_created: {
+      listing_created_count: 1,
+      listed_qty_total: quantity
+    },
+    reservation_created: {
+      reservation_created_count: 1,
+      reserved_qty_total: quantity,
+      estimated_meals_reserved_total: estimatedMeals
+    },
+    pickup_confirmed: {
+      pickup_confirmed_count: 1,
+      pickup_qty_total: quantity,
+      estimated_meals_picked_up_total: estimatedMeals,
+      estimated_kg_diverted_total: estimatedKg
+    }
+  }[eventType];
+
+  if (!increments) {
+    return;
+  }
+
+  const incrementPatch = Object.fromEntries(
+    Object.entries(increments).map(([key, value]) => [key, admin.firestore.FieldValue.increment(value)])
+  );
+
+  const dailyRef = db.collection(KPI_DAILY).doc(dayKey);
+  const summaryRef = db.collection(KPI_SUMMARY).doc('global');
+
+  const writes = [
+    dailyRef.set(
+      {
+        dayKey,
+        updatedAt: now,
+        ...incrementPatch
+      },
+      { merge: true }
+    ),
+    summaryRef.set(
+      {
+        updatedAt: now,
+        ...incrementPatch
+      },
+      { merge: true }
+    )
+  ];
+
+  if (process.env.ENABLE_KPI_EVENT_LOGS === 'true') {
+    writes.push(
+      db.collection(KPI_EVENTS).add({
+        eventType,
+        listingId,
+        reservationId,
+        venueId,
+        itemType,
+        qty: quantity,
+        estimatedMeals,
+        estimatedKg,
+        requestId,
+        createdAt: now,
+        dayKey
+      })
+    );
+  }
+
+  await Promise.all(writes);
 }
 
 function logEvent(level, event, fields = {}) {
@@ -353,7 +456,7 @@ app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
         const data = idempotencySnap.data() || {};
         const cached = data.reservation;
         if (data.status === 'succeeded' && cached && typeof cached === 'object') {
-          return { idempotentReplay: true, reservation: cached };
+          return { idempotentReplay: true, reservation: cached, metricContext: null };
         }
         throw new Error('Idempotency key conflict.');
       }
@@ -422,7 +525,15 @@ app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
         updatedAt: now
       });
 
-      return { idempotentReplay: false, reservation: reservationPayload };
+      return {
+        idempotentReplay: false,
+        reservation: reservationPayload,
+        metricContext: {
+          venueId: listing.venueId || null,
+          itemType: listing.itemType || '',
+          qty
+        }
+      };
     });
 
     if (reserveResult.idempotentReplay) {
@@ -431,6 +542,22 @@ app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
         listingId,
         claimerUid
       });
+    } else {
+      try {
+        await trackKpiEvent({
+          eventType: 'reservation_created',
+          listingId,
+          reservationId: reserveResult.reservation?.id || null,
+          venueId: reserveResult.metricContext?.venueId || null,
+          itemType: reserveResult.metricContext?.itemType || '',
+          qty: reserveResult.metricContext?.qty || 0,
+          requestId: req.requestId
+        });
+      } catch (metricError) {
+        logServerError('kpi.event.write.failed', req, metricError, {
+          reasonCode: 'KPI_WRITE_FAILED_RESERVATION_CREATED'
+        });
+      }
     }
 
     return res.json({
@@ -498,6 +625,21 @@ app.post('/enterprise/listings/create', async (req, res) => {
       createdAt: now,
       updatedAt: now
     });
+
+    try {
+      await trackKpiEvent({
+        eventType: 'listing_created',
+        listingId: listingRef.id,
+        venueId: payload.venueId || null,
+        itemType: payload.itemType || '',
+        qty: payload.quantityTotal || 0,
+        requestId: req.requestId
+      });
+    } catch (metricError) {
+      logServerError('kpi.event.write.failed', req, metricError, {
+        reasonCode: 'KPI_WRITE_FAILED_LISTING_CREATED'
+      });
+    }
 
     return res.json({ ok: true, code: 'CREATE_LISTING_SUCCESS', listingId: listingRef.id, token });
   } catch (error) {
@@ -722,7 +864,7 @@ app.post('/enterprise/listings/:listingId/confirm-pickup', async (req, res) => {
       return errorResponse(res, verified.code, verified.error, 'CONFIRM_PICKUP_FORBIDDEN');
     }
 
-    await db.runTransaction(async (tx) => {
+    const confirmContext = await db.runTransaction(async (tx) => {
       const listingRef = db.collection(LISTINGS).doc(listingId);
       const reservationRef = db.collection(RESERVATIONS).doc(reservationId);
 
@@ -762,7 +904,29 @@ app.post('/enterprise/listings/:listingId/confirm-pickup', async (req, res) => {
           updatedAt: nowDate()
         });
       }
+
+      return {
+        venueId: listingData.venueId || null,
+        itemType: listingData.itemType || '',
+        qty: Number(reservationData.qty || 0)
+      };
     });
+
+    try {
+      await trackKpiEvent({
+        eventType: 'pickup_confirmed',
+        listingId,
+        reservationId,
+        venueId: confirmContext?.venueId || null,
+        itemType: confirmContext?.itemType || '',
+        qty: confirmContext?.qty || 0,
+        requestId: req.requestId
+      });
+    } catch (metricError) {
+      logServerError('kpi.event.write.failed', req, metricError, {
+        reasonCode: 'KPI_WRITE_FAILED_PICKUP_CONFIRMED'
+      });
+    }
 
     return res.json({
       ok: true,

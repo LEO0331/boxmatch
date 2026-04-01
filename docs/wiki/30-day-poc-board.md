@@ -19,13 +19,13 @@
 | 15 | Product UX | Add recipient saved venues/favorites | Eng-2 | Return usage > 20% in pilot cohort | `lib/core/preferences/venue_favorites_store.dart` + list/map UI | Done |
 | 16 | Product UX | Add clearer pickup status timeline (reserved/completed/expired) | Eng-2 | Pickup confusion tickets < 3 | `lib/features/surplus/presentation/browse/reservation_confirmation_page.dart` | Done |
 | 17 | Product UX | Add bilingual copy pass (EN + zh-TW) for key flows | PM + Eng-2 | 100% key screens localized | `lib/core/i18n/app_strings.dart` + language switcher | Done |
-| 18 | Data | Define KPI event model (`listing_created`, `reserved`, `pickup_confirmed`) | PM + Eng-1 | Event coverage 100% for core flow | Event spec doc | Todo |
-| 19 | Data | Add lightweight metrics writer (Firestore aggregate docs) | Eng-1 | KPI dashboard data freshness < 15 min | Metrics collector | Todo |
-| 20 | Data | Add weekly CSV export script for pilot reports | Eng-1 | Export generation success 100% | `scripts/export_kpi_csv.*` | Todo |
-| 21 | Data | Validate waste-reduction metric formula | PM + Eng-1 | Formula sign-off | KPI definition update | Todo |
-| 22 | Ops | Create pilot day SOP (before/during/after event) | PM | SOP completed | `docs/ops/pilot-sop.md` | Todo |
-| 23 | Ops | Add incident report template (food safety/dispute/no-show) | PM + Eng-2 | Incident form ready | `docs/ops/incident-template.md` | Todo |
-| 24 | Ops | Add moderation playbook (suspend listing, revoke token, block abuse UID) | PM + Eng-1 | Moderation response < 15 min | Moderation checklist | Todo |
+| 18 | Data | Define KPI event model (`listing_created`, `reserved`, `pickup_confirmed`) | PM + Eng-1 | Event coverage 100% for core flow | `docs/ops/kpi-event-model.md` | Done |
+| 19 | Data | Add lightweight metrics writer (Firestore aggregate docs) | Eng-1 | KPI dashboard data freshness < 15 min | Firestore `kpi_daily` + `kpi_summary` writer in `server/index.js` | Done |
+| 20 | Data | Add weekly CSV export script for pilot reports | Eng-1 | Export generation success 100% | `scripts/export_kpi_csv.js` | Done |
+| 21 | Data | Validate waste-reduction metric formula | PM + Eng-1 | Formula sign-off | `docs/ops/waste-reduction-formula.md` | Done |
+| 22 | Ops | Create pilot day SOP (before/during/after event) | PM | SOP completed | `docs/ops/pilot-sop.md` | Done |
+| 23 | Ops | Add incident report template (food safety/dispute/no-show) | PM + Eng-2 | Incident form ready | `docs/ops/incident-template.md` | Done |
+| 24 | Ops | Add moderation playbook (suspend listing, revoke token, block abuse UID) | PM + Eng-1 | Moderation response < 15 min | `docs/ops/moderation-playbook.md` | Done |
 | 25 | Quality | Add end-to-end smoke test script for core flow | Eng-1 | Smoke pass on each release | `scripts/smoke_test.*` | Todo |
 | 26 | Quality | Add release checklist gate in GitHub Actions | Eng-1 | Checklist required before prod deploy | Workflow update | Todo |
 | 27 | Pilot | Run pilot event #1 and collect baseline data | PM + Eng-2 | >= 20 successful pickups | Pilot report #1 | Todo |

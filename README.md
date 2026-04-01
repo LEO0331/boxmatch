@@ -20,6 +20,9 @@ Collections used:
 - `listings`
 - `reservations`
 - `abuse_signals`
+- `kpi_daily`
+- `kpi_summary`
+- `kpi_events` (optional, controlled by backend env)
 
 See `firestore.rules` and `firestore.indexes.json` for starter Firebase config.
 
@@ -50,6 +53,18 @@ Set your API URL when building/running Flutter:
 ```bash
 flutter run --dart-define=BOXMATCH_API_BASE_URL=https://<your-render-service>.onrender.com
 ```
+
+### KPI Export (weekly/monthly report)
+
+From repo root:
+
+```bash
+cd server
+npm run export:kpi:7d
+npm run export:kpi:30d
+```
+
+CSV files are generated under `/Users/Leo/Documents/boxmatch/reports`.
 
 ## Testing
 

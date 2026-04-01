@@ -93,11 +93,35 @@ Base URL (after deploy on Render):
 - Reason taxonomy and log schema:
   - [docs/ops/logging-taxonomy.md](/Users/Leo/Documents/boxmatch/docs/ops/logging-taxonomy.md)
 
+## KPI Tracking
+
+- Server writes lightweight aggregate metrics to:
+  - `kpi_daily/{YYYY-MM-DD}`
+  - `kpi_summary/global`
+- Tracked event families:
+  - `listing_created`
+  - `reservation_created`
+  - `pickup_confirmed`
+- Optional raw event logs (`kpi_events`) can be enabled by setting:
+  - `ENABLE_KPI_EVENT_LOGS=true`
+
+### KPI CSV export
+
+Run from `server/`:
+
+```bash
+npm run export:kpi:7d
+npm run export:kpi:30d
+```
+
+Exports are written to `/Users/Leo/Documents/boxmatch/reports`.
+
 ## Render environment variables needed
 
 - `FIREBASE_PROJECT_ID`
 - `FIREBASE_CLIENT_EMAIL`
 - `FIREBASE_PRIVATE_KEY` (use raw key with `\n` escaped)
+- `ENABLE_KPI_EVENT_LOGS` (optional; set `true` only when raw event audit is needed)
 
 ## GitHub Actions secret needed
 
