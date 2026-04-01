@@ -85,6 +85,13 @@ Base URL (after deploy on Render):
 - API hashes (`SHA-256`) and verifies against Firestore `editTokenHash`.
 - Firestore writes are done by Firebase Admin SDK (server-side only).
 
+## Observability
+
+- Responses include `requestId` and `code` for tracing/debugging.
+- Server emits structured JSON logs (`http.request.completed` + endpoint failure events).
+- Reason taxonomy and log schema:
+  - [docs/ops/logging-taxonomy.md](/Users/Leo/Documents/boxmatch/docs/ops/logging-taxonomy.md)
+
 ## Render environment variables needed
 
 - `FIREBASE_PROJECT_ID`

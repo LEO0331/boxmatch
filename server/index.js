@@ -48,6 +48,71 @@ function nowDate() {
   return new Date();
 }
 
+function logEvent(level, event, fields = {}) {
+  const entry = {
+    ts: nowDate().toISOString(),
+    level,
+    event,
+    service: 'boxmatch-server',
+    ...fields
+  };
+  const text = JSON.stringify(entry);
+
+  if (level === 'error') {
+    console.error(text);
+  } else {
+    console.log(text);
+  }
+}
+
+function logServerError(event, req, error, extra = {}) {
+  logEvent('error', event, {
+    requestId: req.requestId ?? null,
+    method: req.method ?? null,
+    path: req.originalUrl ?? null,
+    errorName: error?.name || 'Error',
+    errorMessage: error?.message || String(error),
+    stack: error?.stack || null,
+    ...extra
+  });
+}
+
+app.use((req, res, next) => {
+  req.requestId = crypto.randomUUID();
+  const startedAt = Date.now();
+  const originalJson = res.json.bind(res);
+
+  res.json = (body) => {
+    let payload = body;
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      payload = {
+        requestId: req.requestId,
+        ...payload
+      };
+    }
+    res.locals.responsePayload = payload;
+    return originalJson(payload);
+  };
+
+  res.on('finish', () => {
+    const latencyMs = Date.now() - startedAt;
+    const payload = res.locals.responsePayload || {};
+    const reasonCode = payload?.code || null;
+    const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
+
+    logEvent(level, 'http.request.completed', {
+      requestId: req.requestId,
+      method: req.method,
+      path: req.originalUrl,
+      status: res.statusCode,
+      latencyMs,
+      reasonCode
+    });
+  });
+
+  next();
+});
+
 function toIso(value) {
   if (!value) return null;
   if (value instanceof Date) return value.toISOString();
@@ -179,6 +244,15 @@ function randomDigits(length = 4) {
   return output;
 }
 
+function errorResponse(res, status, message, code, details) {
+  return res.status(status).json({
+    ok: false,
+    error: message,
+    code,
+    details: details ?? null
+  });
+}
+
 async function verifyTokenAndFetchListing(listingId, token) {
   if (!listingId || !token) {
     return { error: 'listingId and token are required.', code: 400 };
@@ -205,6 +279,10 @@ async function verifyTokenAndFetchListing(listingId, token) {
       reason: 'enterprise_token_mismatch',
       createdAt: nowDate()
     });
+    logEvent('warn', 'abuse.signal.created', {
+      listingId,
+      reasonCode: 'ABUSE_ENTERPRISE_TOKEN_MISMATCH'
+    });
     return { error: 'Invalid token.', code: 403 };
   }
 
@@ -223,13 +301,28 @@ app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
     const disclaimerAccepted = req.body?.disclaimerAccepted === true;
 
     if (!claimerUid) {
-      return res.status(400).json({ error: 'claimerUid is required.' });
+      return errorResponse(
+        res,
+        400,
+        'claimerUid is required.',
+        'VALIDATION_CLAIMER_UID_REQUIRED'
+      );
     }
     if (!Number.isInteger(qty) || qty <= 0) {
-      return res.status(400).json({ error: 'qty must be a positive integer.' });
+      return errorResponse(
+        res,
+        400,
+        'qty must be a positive integer.',
+        'VALIDATION_QTY_INVALID'
+      );
     }
     if (!disclaimerAccepted) {
-      return res.status(400).json({ error: 'Please accept disclaimer first.' });
+      return errorResponse(
+        res,
+        400,
+        'Please accept disclaimer first.',
+        'VALIDATION_DISCLAIMER_REQUIRED'
+      );
     }
 
     const reservationRef = db.collection(RESERVATIONS).doc();
@@ -282,6 +375,7 @@ app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
     const data = created.data() || {};
     return res.json({
       ok: true,
+      code: 'RESERVE_SUCCESS',
       reservation: {
         id: created.id,
         listingId: data.listingId || listingId,
@@ -300,8 +394,16 @@ app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
     )
       ? 400
       : 500;
-    console.error('recipient reserve failed', error);
-    return res.status(status).json({ error: message });
+    logServerError('recipient.reserve.failed', req, error, {
+      reasonCode:
+        status == 400 ? 'RESERVE_FAILED_BUSINESS_RULE' : 'RESERVE_FAILED_INTERNAL'
+    });
+    return errorResponse(
+      res,
+      status,
+      message,
+      status == 400 ? 'RESERVE_FAILED_BUSINESS_RULE' : 'RESERVE_FAILED_INTERNAL'
+    );
   }
 });
 
@@ -309,7 +411,13 @@ app.post('/enterprise/listings/create', async (req, res) => {
   try {
     const { errors, payload } = validateAndBuildCreate(req.body?.data || {});
     if (errors.length > 0) {
-      return res.status(400).json({ error: 'Validation failed.', details: errors });
+      return errorResponse(
+        res,
+        400,
+        'Validation failed.',
+        'VALIDATION_CREATE_LISTING_FAILED',
+        errors
+      );
     }
 
     const token = crypto.randomBytes(24).toString('base64url');
@@ -336,10 +444,17 @@ app.post('/enterprise/listings/create', async (req, res) => {
       updatedAt: now
     });
 
-    return res.json({ ok: true, listingId: listingRef.id, token });
+    return res.json({ ok: true, code: 'CREATE_LISTING_SUCCESS', listingId: listingRef.id, token });
   } catch (error) {
-    console.error('create listing failed', error);
-    return res.status(500).json({ error: 'Internal server error.' });
+    logServerError('enterprise.listing.create.failed', req, error, {
+      reasonCode: 'CREATE_LISTING_FAILED_INTERNAL'
+    });
+    return errorResponse(
+      res,
+      500,
+      'Internal server error.',
+      'CREATE_LISTING_FAILED_INTERNAL'
+    );
   }
 });
 
@@ -349,12 +464,24 @@ app.post('/enterprise/listings/:listingId/validate-token', async (req, res) => {
     const token = req.body?.token;
     const verified = await verifyTokenAndFetchListing(listingId, token);
     if (verified.error) {
-      return res.status(verified.code).json({ error: verified.error, ok: false });
+      return errorResponse(
+        res,
+        verified.code,
+        verified.error,
+        'VALIDATE_TOKEN_FAILED'
+      );
     }
-    return res.json({ ok: true, listingId });
+    return res.json({ ok: true, code: 'VALIDATE_TOKEN_SUCCESS', listingId });
   } catch (error) {
-    console.error('validate token failed', error);
-    return res.status(500).json({ error: 'Internal server error.', ok: false });
+    logServerError('enterprise.token.validate.failed', req, error, {
+      reasonCode: 'VALIDATE_TOKEN_FAILED_INTERNAL'
+    });
+    return errorResponse(
+      res,
+      500,
+      'Internal server error.',
+      'VALIDATE_TOKEN_FAILED_INTERNAL'
+    );
   }
 });
 
@@ -364,7 +491,12 @@ app.post('/enterprise/listings/:listingId/reservations', async (req, res) => {
     const token = req.body?.token;
     const verified = await verifyTokenAndFetchListing(listingId, token);
     if (verified.error) {
-      return res.status(verified.code).json({ error: verified.error, ok: false });
+      return errorResponse(
+        res,
+        verified.code,
+        verified.error,
+        'LIST_RESERVATIONS_FORBIDDEN'
+      );
     }
 
     const snap = await db
@@ -387,10 +519,17 @@ app.post('/enterprise/listings/:listingId/reservations', async (req, res) => {
       };
     });
 
-    return res.json({ ok: true, listingId, reservations });
+    return res.json({ ok: true, code: 'LIST_RESERVATIONS_SUCCESS', listingId, reservations });
   } catch (error) {
-    console.error('list reservations failed', error);
-    return res.status(500).json({ error: 'Internal server error.', ok: false });
+    logServerError('enterprise.reservation.list.failed', req, error, {
+      reasonCode: 'LIST_RESERVATIONS_FAILED_INTERNAL'
+    });
+    return errorResponse(
+      res,
+      500,
+      'Internal server error.',
+      'LIST_RESERVATIONS_FAILED_INTERNAL'
+    );
   }
 });
 
@@ -401,15 +540,26 @@ app.post('/enterprise/listings/:listingId/update', async (req, res) => {
 
     const verified = await verifyTokenAndFetchListing(listingId, token);
     if (verified.error) {
-      return res.status(verified.code).json({ error: verified.error });
+      return errorResponse(res, verified.code, verified.error, 'UPDATE_LISTING_FORBIDDEN');
     }
 
     const { errors, payload } = validateAndBuildUpdate(req.body?.data || {});
     if (errors.length > 0) {
-      return res.status(400).json({ error: 'Validation failed.', details: errors });
+      return errorResponse(
+        res,
+        400,
+        'Validation failed.',
+        'VALIDATION_UPDATE_LISTING_FAILED',
+        errors
+      );
     }
     if (Object.keys(payload).length === 0) {
-      return res.status(400).json({ error: 'No valid update fields provided.' });
+      return errorResponse(
+        res,
+        400,
+        'No valid update fields provided.',
+        'VALIDATION_UPDATE_LISTING_EMPTY'
+      );
     }
 
     const existing = verified.data;
@@ -425,10 +575,17 @@ app.post('/enterprise/listings/:listingId/update', async (req, res) => {
     };
 
     await verified.ref.update(updateDoc);
-    return res.json({ ok: true, listingId, updatedFields: Object.keys(updateDoc) });
+    return res.json({ ok: true, code: 'UPDATE_LISTING_SUCCESS', listingId, updatedFields: Object.keys(updateDoc) });
   } catch (error) {
-    console.error('update listing failed', error);
-    return res.status(500).json({ error: 'Internal server error.' });
+    logServerError('enterprise.listing.update.failed', req, error, {
+      reasonCode: 'UPDATE_LISTING_FAILED_INTERNAL'
+    });
+    return errorResponse(
+      res,
+      500,
+      'Internal server error.',
+      'UPDATE_LISTING_FAILED_INTERNAL'
+    );
   }
 });
 
@@ -439,7 +596,7 @@ app.post('/enterprise/listings/:listingId/rotate-token', async (req, res) => {
 
     const verified = await verifyTokenAndFetchListing(listingId, token);
     if (verified.error) {
-      return res.status(verified.code).json({ error: verified.error });
+      return errorResponse(res, verified.code, verified.error, 'ROTATE_TOKEN_FORBIDDEN');
     }
 
     const newToken = crypto.randomBytes(24).toString('base64url');
@@ -448,10 +605,17 @@ app.post('/enterprise/listings/:listingId/rotate-token', async (req, res) => {
       updatedAt: nowDate()
     });
 
-    return res.json({ ok: true, listingId, token: newToken });
+    return res.json({ ok: true, code: 'ROTATE_TOKEN_SUCCESS', listingId, token: newToken });
   } catch (error) {
-    console.error('rotate token failed', error);
-    return res.status(500).json({ error: 'Internal server error.' });
+    logServerError('enterprise.token.rotate.failed', req, error, {
+      reasonCode: 'ROTATE_TOKEN_FAILED_INTERNAL'
+    });
+    return errorResponse(
+      res,
+      500,
+      'Internal server error.',
+      'ROTATE_TOKEN_FAILED_INTERNAL'
+    );
   }
 });
 
@@ -462,7 +626,7 @@ app.post('/enterprise/listings/:listingId/revoke-token', async (req, res) => {
 
     const verified = await verifyTokenAndFetchListing(listingId, token);
     if (verified.error) {
-      return res.status(verified.code).json({ error: verified.error });
+      return errorResponse(res, verified.code, verified.error, 'REVOKE_TOKEN_FORBIDDEN');
     }
 
     await verified.ref.update({
@@ -470,10 +634,17 @@ app.post('/enterprise/listings/:listingId/revoke-token', async (req, res) => {
       updatedAt: nowDate()
     });
 
-    return res.json({ ok: true, listingId, revoked: true });
+    return res.json({ ok: true, code: 'REVOKE_TOKEN_SUCCESS', listingId, revoked: true });
   } catch (error) {
-    console.error('revoke token failed', error);
-    return res.status(500).json({ error: 'Internal server error.' });
+    logServerError('enterprise.token.revoke.failed', req, error, {
+      reasonCode: 'REVOKE_TOKEN_FAILED_INTERNAL'
+    });
+    return errorResponse(
+      res,
+      500,
+      'Internal server error.',
+      'REVOKE_TOKEN_FAILED_INTERNAL'
+    );
   }
 });
 
@@ -483,12 +654,17 @@ app.post('/enterprise/listings/:listingId/confirm-pickup', async (req, res) => {
     const { token, reservationId, pickupCode } = req.body || {};
 
     if (!reservationId || !pickupCode) {
-      return res.status(400).json({ error: 'reservationId and pickupCode are required.' });
+      return errorResponse(
+        res,
+        400,
+        'reservationId and pickupCode are required.',
+        'VALIDATION_CONFIRM_PICKUP_REQUIRED_FIELDS'
+      );
     }
 
     const verified = await verifyTokenAndFetchListing(listingId, token);
     if (verified.error) {
-      return res.status(verified.code).json({ error: verified.error });
+      return errorResponse(res, verified.code, verified.error, 'CONFIRM_PICKUP_FORBIDDEN');
     }
 
     await db.runTransaction(async (tx) => {
@@ -533,7 +709,13 @@ app.post('/enterprise/listings/:listingId/confirm-pickup', async (req, res) => {
       }
     });
 
-    return res.json({ ok: true, listingId, reservationId, confirmed: true });
+    return res.json({
+      ok: true,
+      code: 'CONFIRM_PICKUP_SUCCESS',
+      listingId,
+      reservationId,
+      confirmed: true
+    });
   } catch (error) {
     const message = error?.message || 'Internal server error.';
     const status = [
@@ -545,8 +727,19 @@ app.post('/enterprise/listings/:listingId/confirm-pickup', async (req, res) => {
     ].includes(message)
       ? 400
       : 500;
-    console.error('confirm pickup failed', error);
-    return res.status(status).json({ error: message });
+    logServerError('enterprise.pickup.confirm.failed', req, error, {
+      statusHint: status,
+      reasonCode:
+        status == 400
+          ? 'CONFIRM_PICKUP_FAILED_BUSINESS_RULE'
+          : 'CONFIRM_PICKUP_FAILED_INTERNAL'
+    });
+    return errorResponse(
+      res,
+      status,
+      message,
+      status == 400 ? 'CONFIRM_PICKUP_FAILED_BUSINESS_RULE' : 'CONFIRM_PICKUP_FAILED_INTERNAL'
+    );
   }
 });
 

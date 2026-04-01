@@ -57,3 +57,8 @@ flutter run --dart-define=BOXMATCH_API_BASE_URL=https://<your-render-service>.on
 flutter analyze
 flutter test
 ```
+
+## Execution Board
+
+- 30-day POC board for GitHub Wiki:
+  - [docs/wiki/30-day-poc-board.md](https://github.com/LEO0331/boxmatch/wiki/30%E2%80%90Day-POC-Execution-Plan-(Free%E2%80%90Tier-First))
