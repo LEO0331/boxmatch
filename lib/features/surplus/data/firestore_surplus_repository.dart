@@ -380,9 +380,14 @@ class FirestoreSurplusRepository implements SurplusRepository {
 
         Map<String, dynamic> body = const {};
         if (response.body.isNotEmpty) {
-          final decoded = jsonDecode(response.body);
-          if (decoded is Map<String, dynamic>) {
-            body = decoded;
+          try {
+            final decoded = jsonDecode(response.body);
+            if (decoded is Map<String, dynamic>) {
+              body = decoded;
+            }
+          } on FormatException {
+            // Some upstream/proxy failures may return HTML/plain text.
+            // Keep body empty and continue with status-based handling below.
           }
         }
 
@@ -415,6 +420,12 @@ class FirestoreSurplusRepository implements SurplusRepository {
         }
         throw const ApiUnavailableException('Cannot reach API');
       } on http.ClientException {
+        if (attempt < maxAttempts) {
+          await Future<void>.delayed(_retryDelay(attempt));
+          continue;
+        }
+        throw const ApiUnavailableException('Cannot reach API');
+      } on FormatException {
         if (attempt < maxAttempts) {
           await Future<void>.delayed(_retryDelay(attempt));
           continue;
