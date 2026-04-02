@@ -73,19 +73,23 @@ class FirestoreSurplusRepository implements SurplusRepository {
 
   @override
   Stream<List<Listing>> watchActiveListings() {
-    final now = Timestamp.fromDate(DateTime.now());
-    return _listingsRef
-        .where('expiresAt', isGreaterThan: now)
-        .where('status', whereIn: const ['active', 'reserved'])
-        .snapshots()
-        .map((snapshot) {
-          final listings =
-              snapshot.docs
-                  .map((doc) => Listing.fromMap(doc.data(), id: doc.id))
-                  .toList()
-                ..sort((a, b) => a.expiresAt.compareTo(b.expiresAt));
-          return listings;
-        });
+    // Use a broad query and filter client-side to avoid composite index issues
+    // in early-stage environments. This keeps map/list pages resilient.
+    return _listingsRef.snapshots().map((snapshot) {
+      final now = DateTime.now();
+      final listings =
+          snapshot.docs
+              .map((doc) => Listing.fromMap(doc.data(), id: doc.id))
+              .where(
+                (listing) =>
+                    listing.expiresAt.isAfter(now) &&
+                    (listing.status == ListingStatus.active ||
+                        listing.status == ListingStatus.reserved),
+              )
+              .toList()
+            ..sort((a, b) => a.expiresAt.compareTo(b.expiresAt));
+      return listings;
+    });
   }
 
   @override
