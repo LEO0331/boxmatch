@@ -55,6 +55,8 @@ void main() {
 
       expect(find.text('Reservation confirmed'), findsOneWidget);
       expect(find.textContaining('Show this 4-digit code'), findsOneWidget);
+      expect(find.text('Privacy & FAQ'), findsOneWidget);
+      expect(find.textContaining('Privacy note'), findsOneWidget);
 
       final listing = await repository.watchListing(create.listingId).first;
       expect(listing?.quantityRemaining, 1);

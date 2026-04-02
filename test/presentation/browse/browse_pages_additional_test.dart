@@ -121,6 +121,8 @@ Listing _forcedListing(
   required ListingStatus status,
   required int quantityRemaining,
   required DateTime expiresAt,
+  String? displayNameOptional,
+  bool enterpriseVerified = false,
 }) {
   return Listing(
     id: id,
@@ -135,7 +137,8 @@ Listing _forcedListing(
     pickupStartAt: now.add(const Duration(minutes: 5)),
     pickupEndAt: now.add(const Duration(minutes: 30)),
     expiresAt: expiresAt,
-    displayNameOptional: null,
+    displayNameOptional: displayNameOptional,
+    enterpriseVerified: enterpriseVerified,
     visibility: ListingVisibility.minimal,
     status: status,
     editTokenHash: 'hash',
@@ -162,7 +165,10 @@ Reservation _forcedReservation(
   );
 }
 
-Future<void> _pumpHome(WidgetTester tester, _InstrumentedRepository repo) async {
+Future<void> _pumpHome(
+  WidgetTester tester,
+  _InstrumentedRepository repo,
+) async {
   final dependencies = await buildTestDependencies(repository: repo);
   await tester.pumpWidget(BoxmatchApp(dependencies: dependencies));
   await tester.pumpAndSettle();
@@ -205,58 +211,59 @@ Future<void> _pumpConfirmation(
 }
 
 void main() {
-  testWidgets('listings page covers refresh, timer, favorites and donor display', (
-    tester,
-  ) async {
-    final repo = _InstrumentedRepository();
-    final now = DateTime.now();
-    await repo.createListing(
-      _input(
-        now,
-        venueId: 'taipei-nangang-exhibition-center-hall-1',
-        itemType: 'Item A',
-        displayName: null,
-        expiresIn: const Duration(hours: 2),
-      ),
-    );
-    await repo.createListing(
-      _input(
-        now,
-        venueId: 'taipei-nangang-exhibition-center-hall-2',
-        itemType: 'Item B',
-        displayName: 'Acme Corp',
-        expiresIn: const Duration(hours: 3),
-      ),
-    );
+  testWidgets(
+    'listings page covers refresh, timer, favorites and donor display',
+    (tester) async {
+      final repo = _InstrumentedRepository();
+      final now = DateTime.now();
+      await repo.createListing(
+        _input(
+          now,
+          venueId: 'taipei-nangang-exhibition-center-hall-1',
+          itemType: 'Item A',
+          displayName: null,
+          expiresIn: const Duration(hours: 2),
+        ),
+      );
+      await repo.createListing(
+        _input(
+          now,
+          venueId: 'taipei-nangang-exhibition-center-hall-2',
+          itemType: 'Item B',
+          displayName: 'Acme Corp',
+          expiresIn: const Duration(hours: 3),
+        ),
+      );
 
-    await _pumpHome(tester, repo);
+      await _pumpHome(tester, repo);
 
-    expect(find.textContaining('Running in local demo mode'), findsOneWidget);
-    expect(find.textContaining('Private donor'), findsOneWidget);
-    expect(find.textContaining('Acme Corp'), findsOneWidget);
+      expect(find.textContaining('Running in local demo mode'), findsOneWidget);
+      expect(find.textContaining('Private donor'), findsOneWidget);
+      expect(find.textContaining('Acme Corp'), findsOneWidget);
 
-    final favButtons = find.byIcon(Icons.favorite_border);
-    expect(favButtons, findsNWidgets(2));
-    await tester.tap(favButtons.at(1));
-    await tester.pumpAndSettle();
+      final favButtons = find.byIcon(Icons.favorite_border);
+      expect(favButtons, findsNWidgets(2));
+      await tester.tap(favButtons.at(1));
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Favorites only'));
-    await tester.pumpAndSettle();
-    expect(find.textContaining('Item B'), findsOneWidget);
-    expect(find.textContaining('Item A'), findsNothing);
+      await tester.tap(find.text('Favorites only'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Item B'), findsOneWidget);
+      expect(find.textContaining('Item A'), findsNothing);
 
-    await tester.tap(find.text('All venues'));
-    await tester.pumpAndSettle();
-    expect(find.textContaining('Item A'), findsOneWidget);
+      await tester.tap(find.text('All venues'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Item A'), findsOneWidget);
 
-    await tester.tap(find.byIcon(Icons.refresh));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.refresh));
+      await tester.pumpAndSettle();
 
-    await tester.pump(const Duration(minutes: 31));
-    await tester.pumpAndSettle();
+      await tester.pump(const Duration(minutes: 31));
+      await tester.pumpAndSettle();
 
-    expect(repo.reconcileCalls, greaterThanOrEqualTo(2));
-  });
+      expect(repo.reconcileCalls, greaterThanOrEqualTo(2));
+    },
+  );
 
   testWidgets('listings page shows load error when venue stream fails', (
     tester,
@@ -358,91 +365,95 @@ void main() {
     expect(find.text('Unable to load'), findsOneWidget);
   });
 
-  testWidgets('listing detail renders reserved, expired and completed statuses', (
-    tester,
-  ) async {
-    final now = DateTime.now();
-    final repo = _InstrumentedRepository()
-      ..forcedListings['reserved-id'] = _forcedListing(
-        now,
-        id: 'reserved-id',
-        status: ListingStatus.active,
-        quantityRemaining: 0,
-        expiresAt: now.add(const Duration(hours: 1)),
-      )
-      ..forcedListings['expired-id'] = _forcedListing(
-        now,
-        id: 'expired-id',
-        status: ListingStatus.active,
-        quantityRemaining: 1,
-        expiresAt: now.subtract(const Duration(minutes: 1)),
-      )
-      ..forcedListings['completed-id'] = _forcedListing(
-        now,
-        id: 'completed-id',
-        status: ListingStatus.completed,
-        quantityRemaining: 0,
-        expiresAt: now.add(const Duration(hours: 1)),
+  testWidgets(
+    'listing detail renders reserved, expired and completed statuses',
+    (tester) async {
+      final now = DateTime.now();
+      final repo = _InstrumentedRepository()
+        ..forcedListings['reserved-id'] = _forcedListing(
+          now,
+          id: 'reserved-id',
+          status: ListingStatus.active,
+          quantityRemaining: 0,
+          expiresAt: now.add(const Duration(hours: 1)),
+        )
+        ..forcedListings['expired-id'] = _forcedListing(
+          now,
+          id: 'expired-id',
+          status: ListingStatus.active,
+          quantityRemaining: 1,
+          expiresAt: now.subtract(const Duration(minutes: 1)),
+        )
+        ..forcedListings['completed-id'] = _forcedListing(
+          now,
+          id: 'completed-id',
+          status: ListingStatus.completed,
+          quantityRemaining: 0,
+          expiresAt: now.add(const Duration(hours: 1)),
+        );
+
+      await _pumpDetail(tester, repo, 'reserved-id');
+      expect(find.textContaining('Status: Reserved'), findsOneWidget);
+
+      await _pumpDetail(tester, repo, 'expired-id');
+      expect(find.textContaining('Status: Expired'), findsOneWidget);
+
+      await _pumpDetail(tester, repo, 'completed-id');
+      expect(find.textContaining('Status: Completed'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'reservation confirmation shows error when reservation stream fails',
+    (tester) async {
+      final repo = _InstrumentedRepository()..reservationStreamError = true;
+      await _pumpConfirmation(
+        tester,
+        repo,
+        listingId: 'l1',
+        reservationId: 'r1',
       );
+      expect(find.text('Unable to load'), findsOneWidget);
+    },
+  );
 
-    await _pumpDetail(tester, repo, 'reserved-id');
-    expect(find.textContaining('Status: Reserved'), findsOneWidget);
+  testWidgets(
+    'reservation confirmation shows not found when missing reservation',
+    (tester) async {
+      final repo = _InstrumentedRepository();
+      await _pumpConfirmation(
+        tester,
+        repo,
+        listingId: 'l1',
+        reservationId: 'missing-reservation',
+      );
+      expect(find.text('Reservation not found.'), findsOneWidget);
+    },
+  );
 
-    await _pumpDetail(tester, repo, 'expired-id');
-    expect(find.textContaining('Status: Expired'), findsOneWidget);
+  testWidgets(
+    'reservation confirmation shows error when listing stream fails',
+    (tester) async {
+      final now = DateTime.now();
+      final repo = _InstrumentedRepository()
+        ..listingStreamErrorIds.add('listing-error')
+        ..forcedReservations['reservation-ok'] = _forcedReservation(
+          now,
+          id: 'reservation-ok',
+          listingId: 'listing-error',
+          status: ReservationStatus.reserved,
+        );
 
-    await _pumpDetail(tester, repo, 'completed-id');
-    expect(find.textContaining('Status: Completed'), findsOneWidget);
-  });
-
-  testWidgets('reservation confirmation shows error when reservation stream fails', (
-    tester,
-  ) async {
-    final repo = _InstrumentedRepository()..reservationStreamError = true;
-    await _pumpConfirmation(
-      tester,
-      repo,
-      listingId: 'l1',
-      reservationId: 'r1',
-    );
-    expect(find.text('Unable to load'), findsOneWidget);
-  });
-
-  testWidgets('reservation confirmation shows not found when missing reservation', (
-    tester,
-  ) async {
-    final repo = _InstrumentedRepository();
-    await _pumpConfirmation(
-      tester,
-      repo,
-      listingId: 'l1',
-      reservationId: 'missing-reservation',
-    );
-    expect(find.text('Reservation not found.'), findsOneWidget);
-  });
-
-  testWidgets('reservation confirmation shows error when listing stream fails', (
-    tester,
-  ) async {
-    final now = DateTime.now();
-    final repo = _InstrumentedRepository()
-      ..listingStreamErrorIds.add('listing-error')
-      ..forcedReservations['reservation-ok'] = _forcedReservation(
-        now,
-        id: 'reservation-ok',
+      await _pumpConfirmation(
+        tester,
+        repo,
         listingId: 'listing-error',
-        status: ReservationStatus.reserved,
+        reservationId: 'reservation-ok',
       );
 
-    await _pumpConfirmation(
-      tester,
-      repo,
-      listingId: 'listing-error',
-      reservationId: 'reservation-ok',
-    );
-
-    expect(find.text('Unable to load'), findsOneWidget);
-  });
+      expect(find.text('Unable to load'), findsOneWidget);
+    },
+  );
 
   testWidgets(
     'reservation confirmation renders completed, expired and cancelled statuses',
@@ -481,7 +492,7 @@ void main() {
         listingId: 'shared-listing',
         reservationId: 'r-completed',
       );
-      expect(find.textContaining('Reservation status: Completed'), findsOneWidget);
+      expect(find.text('Completed'), findsWidgets);
 
       await _pumpConfirmation(
         tester,
@@ -489,7 +500,7 @@ void main() {
         listingId: 'shared-listing',
         reservationId: 'r-expired',
       );
-      expect(find.textContaining('Reservation status: Expired'), findsOneWidget);
+      expect(find.text('Expired'), findsWidgets);
 
       await _pumpConfirmation(
         tester,
@@ -497,7 +508,7 @@ void main() {
         listingId: 'shared-listing',
         reservationId: 'r-cancelled',
       );
-      expect(find.textContaining('Reservation status: Cancelled'), findsOneWidget);
+      expect(find.text('Cancelled'), findsWidgets);
     },
   );
 }

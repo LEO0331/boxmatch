@@ -78,6 +78,14 @@ class AppStrings {
   String get showPickupCodeHelp => _zh
       ? '請在取餐時向企業出示這組 4 位數代碼。'
       : 'Show this 4-digit code to the enterprise at pickup.';
+  String get frequentEnterprise => _zh ? '常態捐贈企業' : 'Frequent enterprise';
+  String get privacyFaqTitle => _zh ? '隱私與常見問題' : 'Privacy & FAQ';
+  String get privacyNotice => _zh
+      ? '隱私提醒：平台僅顯示必要媒合資訊，不公開個人聯絡方式。'
+      : 'Privacy note: Boxmatch only shows minimum matching info and does not expose personal contacts.';
+  String get faqNotice => _zh
+      ? 'FAQ：若遇到臨時改地點或可疑行為，請在預約頁按「回報風險事件」。'
+      : 'FAQ: if pickup location is changed privately or suspicious behavior occurs, use "Report safety concern".';
 
   String get retry => _zh ? '重試' : 'Retry';
   String get genericLoadErrorTitle => _zh ? '讀取失敗' : 'Unable to load';

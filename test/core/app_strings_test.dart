@@ -27,6 +27,10 @@ void main() {
     expect(find.text('Listings'), findsOneWidget);
     expect(strings.statusLabel(AppStatusLabel.completed), 'Completed');
     expect(strings.mapSource('OSM'), contains('OSM'));
+    expect(strings.frequentEnterprise, 'Frequent enterprise');
+    expect(strings.privacyFaqTitle, 'Privacy & FAQ');
+    expect(strings.privacyNotice, contains('Boxmatch'));
+    expect(strings.faqNotice, contains('Report safety concern'));
   });
 
   testWidgets('app strings returns zh-TW labels', (tester) async {
@@ -39,7 +43,13 @@ void main() {
           home: Builder(
             builder: (context) {
               final strings = AppStrings.of(context);
-              return Text(strings.navMap);
+              return Column(
+                children: [
+                  Text(strings.navMap),
+                  Text(strings.frequentEnterprise),
+                  Text(strings.privacyFaqTitle),
+                ],
+              );
             },
           ),
         ),
@@ -47,5 +57,7 @@ void main() {
     );
 
     expect(find.text('地圖'), findsOneWidget);
+    expect(find.text('常態捐贈企業'), findsOneWidget);
+    expect(find.text('隱私與常見問題'), findsOneWidget);
   });
 }
