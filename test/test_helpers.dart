@@ -15,7 +15,9 @@ class FakeIdentityService implements RecipientIdentityService {
 
 Future<AppDependencies> buildTestDependencies({
   InMemorySurplusRepository? repository,
+  RecipientIdentityService? identityService,
   String language = 'en',
+  bool usingFirebase = false,
 }) async {
   SharedPreferences.setMockInitialValues({'boxmatch.language': language});
   final prefs = await SharedPreferences.getInstance();
@@ -26,8 +28,8 @@ Future<AppDependencies> buildTestDependencies({
 
   return AppDependencies(
     repository: repo,
-    identityService: FakeIdentityService(),
-    usingFirebase: false,
+    identityService: identityService ?? FakeIdentityService(),
+    usingFirebase: usingFirebase,
     localeController: localeController,
     favoritesStore: favoritesStore,
   );
