@@ -15,3 +15,7 @@ services:
         sync: false
       - key: FIREBASE_PRIVATE_KEY
         sync: false
+      - key: UNVERIFIED_DAILY_LIMIT
+        value: "10"
+      - key: RECIPIENT_DAILY_RESERVATION_LIMIT
+        value: "5"

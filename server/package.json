@@ -10,7 +10,8 @@
     "start": "node index.js",
     "dev": "node index.js",
     "export:kpi:7d": "node ../scripts/export_kpi_csv.js 7",
-    "export:kpi:30d": "node ../scripts/export_kpi_csv.js 30"
+    "export:kpi:30d": "node ../scripts/export_kpi_csv.js 30",
+    "seed:verified": "node ../scripts/seed_verified_enterprises.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

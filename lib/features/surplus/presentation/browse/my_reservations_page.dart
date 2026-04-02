@@ -95,6 +95,11 @@ class _MyReservationsPageState extends State<MyReservationsPage> {
     final s = AppStrings.of(context);
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          onPressed: () => context.go('/'),
+          tooltip: s.navListings,
+          icon: const Icon(Icons.arrow_back),
+        ),
         title: Text(s.myReservationsTitle),
         actions: [
           IconButton(
