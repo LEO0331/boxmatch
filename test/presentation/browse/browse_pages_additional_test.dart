@@ -151,6 +151,7 @@ Listing _forcedListing(
   required DateTime expiresAt,
   String? displayNameOptional,
   bool enterpriseVerified = false,
+  List<String> enterpriseBadges = const <String>[],
 }) {
   return Listing(
     id: id,
@@ -167,6 +168,7 @@ Listing _forcedListing(
     expiresAt: expiresAt,
     displayNameOptional: displayNameOptional,
     enterpriseVerified: enterpriseVerified,
+    enterpriseBadges: enterpriseBadges,
     visibility: ListingVisibility.minimal,
     status: status,
     editTokenHash: 'hash',
@@ -224,6 +226,11 @@ Future<void> _pumpConfirmation(
   required String reservationId,
   RecipientIdentityService? identityService,
 }) async {
+  tester.view.devicePixelRatio = 1.0;
+  tester.view.physicalSize = const Size(1200, 2400);
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+
   final dependencies = await buildTestDependencies(
     repository: repo,
     identityService: identityService,
@@ -585,6 +592,137 @@ void main() {
       expect(find.text('Using offline identity mode'), findsOneWidget);
       expect(find.text('1234'), findsOneWidget);
       expect(find.widgetWithText(OutlinedButton, 'Back to listings'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'reservation confirmation opens and cancels risk reason dialog',
+    (tester) async {
+      final now = DateTime.now();
+      final repo = _InstrumentedRepository()
+        ..forcedListings['reason-dialog'] = _forcedListing(
+          now,
+          id: 'reason-dialog',
+          status: ListingStatus.active,
+          quantityRemaining: 1,
+          expiresAt: now.add(const Duration(hours: 2)),
+        )
+        ..forcedReservations['reason-dialog-r'] = _forcedReservation(
+          now,
+          id: 'reason-dialog-r',
+          listingId: 'reason-dialog',
+          status: ReservationStatus.reserved,
+        );
+
+      await _pumpConfirmation(
+        tester,
+        repo,
+        listingId: 'reason-dialog',
+        reservationId: 'reason-dialog-r',
+      );
+
+      final reportButton = find.byIcon(Icons.report_gmailerrorred_outlined);
+      await tester.scrollUntilVisible(
+        reportButton,
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(reportButton);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Select a reason'), findsOneWidget);
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+      await tester.pumpAndSettle();
+      expect(find.text('Select a reason'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'reservation confirmation reports selected risk reason and shows badges',
+    (tester) async {
+      final now = DateTime.now();
+      final repo = _InstrumentedRepository()
+        ..forcedListings['reason-submit'] = _forcedListing(
+          now,
+          id: 'reason-submit',
+          status: ListingStatus.active,
+          quantityRemaining: 1,
+          expiresAt: now.add(const Duration(hours: 2)),
+          enterpriseBadges: const <String>['verified', 'high_impact'],
+        )
+        ..forcedReservations['reason-submit-r'] = _forcedReservation(
+          now,
+          id: 'reason-submit-r',
+          listingId: 'reason-submit',
+          status: ReservationStatus.reserved,
+        );
+
+      await _pumpConfirmation(
+        tester,
+        repo,
+        listingId: 'reason-submit',
+        reservationId: 'reason-submit-r',
+      );
+
+      expect(find.text('Verified enterprise'), findsOneWidget);
+      expect(find.text('High-impact donor'), findsOneWidget);
+
+      final reportButton = find.byIcon(Icons.report_gmailerrorred_outlined);
+      await tester.scrollUntilVisible(
+        reportButton,
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(reportButton);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Suspicious behavior / harassment'));
+      await tester.pumpAndSettle();
+
+      expect(repo.lastAbuseReason, 'recipient_report_suspicious_behavior');
+      expect(find.text('Safety report submitted.'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'reservation confirmation shows error when abuse report fails',
+    (tester) async {
+      final now = DateTime.now();
+      final repo = _InstrumentedRepository()
+        ..throwOnAbuseSignal = true
+        ..forcedListings['reason-fail'] = _forcedListing(
+          now,
+          id: 'reason-fail',
+          status: ListingStatus.active,
+          quantityRemaining: 1,
+          expiresAt: now.add(const Duration(hours: 2)),
+        )
+        ..forcedReservations['reason-fail-r'] = _forcedReservation(
+          now,
+          id: 'reason-fail-r',
+          listingId: 'reason-fail',
+          status: ReservationStatus.reserved,
+        );
+
+      await _pumpConfirmation(
+        tester,
+        repo,
+        listingId: 'reason-fail',
+        reservationId: 'reason-fail-r',
+      );
+
+      final reportButton = find.byIcon(Icons.report_gmailerrorred_outlined);
+      await tester.scrollUntilVisible(
+        reportButton,
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(reportButton);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Other risk'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Abuse report failed for test.'), findsOneWidget);
     },
   );
 

@@ -2,7 +2,9 @@
 
 const fs = require('fs');
 const path = require('path');
-const admin = require('firebase-admin');
+const { createRequire } = require('module');
+const requireFromCwd = createRequire(path.join(process.cwd(), 'package.json'));
+const admin = requireFromCwd('firebase-admin');
 
 function fail(message) {
   console.error(message);
@@ -38,7 +40,7 @@ function initAdminFromEnv() {
 async function main() {
   const inputPath =
     process.argv[2] ||
-    path.resolve(process.cwd(), 'docs/ops/verified_enterprises.seed.json');
+    path.resolve(__dirname, '../docs/ops/verified_enterprises.seed.json');
 
   if (!fs.existsSync(inputPath)) {
     fail(`Seed file not found: ${inputPath}`);
