@@ -10,13 +10,6 @@
 - Primary health endpoint: `https://<your-render-service>.onrender.com/health`
 - Returns JSON with `ok: true` when service is healthy.
 
-## GitHub Actions Probe
-
-- Workflow file: `.github/workflows/health-probe.yml`
-- Schedule: every 15 minutes.
-- Required GitHub secret:
-  - `HEALTHCHECK_URL` (example: `https://boxmatch-api.onrender.com`)
-
 ## UptimeRobot (Free) Setup
 
 1. Create account at <https://uptimerobot.com/>.

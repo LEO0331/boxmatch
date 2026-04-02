@@ -8,7 +8,7 @@ Use this checklist before production deployment.
 - [ ] `flutter test` passed
 - [ ] `server` lint passed (`npm run lint`)
 - [ ] Smoke test passed (`scripts/smoke_test.sh`)
-- [ ] `/health` monitor green (GitHub probe + UptimeRobot)
+- [ ] `/health` monitor green (UptimeRobot)
 - [ ] Rollback steps reviewed in `docs/ops/deploy-runbook.md`
 - [ ] Stakeholder approval recorded (PM/owner)
 

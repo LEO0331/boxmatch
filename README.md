@@ -71,10 +71,6 @@ One-time setup in GitHub:
 2. `Build and deployment` -> `Source` = `GitHub Actions`
 3. (Optional) add repo secret `BOXMATCH_API_BASE_URL` if you want a non-default API URL in web build
 
-Expected URL:
-
-- `https://LEO0331.github.io/boxmatch/`
-
 ### KPI Export (weekly/monthly report)
 
 From repo root:
@@ -84,8 +80,6 @@ cd server
 npm run export:kpi:7d
 npm run export:kpi:30d
 ```
-
-CSV files are generated under `/Users/Leo/Documents/boxmatch/reports`.
 
 ## Testing
 
@@ -102,14 +96,19 @@ flutter test
 
 ## Release Smoke + Gate
 
-```bash
-/Users/Leo/Documents/boxmatch/scripts/smoke_test.sh
-```
-
 Production deploy gate workflow:
 
 - `.github/workflows/release-checklist-gate.yml`
 - checklist doc: `docs/ops/release-checklist.md`
+
+## Seed Testing Data (POC)
+
+Generate multiple demo listings/reservations via backend API
+Optional knobs:
+
+- `SEED_LISTING_COUNT` (default `6`)
+- `SEED_RESERVE_COUNT` (default `3`)
+- `SEED_CONFIRM_COUNT` (default `1`)
 
 ## Execution Board
 
