@@ -24,6 +24,7 @@ class FirestoreSurplusRepository implements SurplusRepository {
   final FirebaseFirestore _firestore;
   final String _apiBaseUrl;
   final http.Client _http;
+  final Map<String, Reservation> _reservationCache = {};
   static const Duration _defaultTimeout = Duration(seconds: 8);
   static const Set<int> _retryableStatusCodes = {408, 429, 500, 502, 503, 504};
   static const Duration _pollFastInterval = Duration(seconds: 8);
@@ -62,11 +63,17 @@ class FirestoreSurplusRepository implements SurplusRepository {
   @override
   Stream<List<Venue>> watchVenues() {
     return _venuesRef.snapshots().map((snapshot) {
-      final venues =
-          snapshot.docs
-              .map((doc) => Venue.fromMap(doc.data(), id: doc.id))
-              .toList()
-            ..sort((a, b) => a.name.compareTo(b.name));
+      final venues = snapshot.docs
+          .map((doc) => Venue.fromMap(doc.data(), id: doc.id))
+          .toList();
+
+      if (venues.isEmpty) {
+        final fallback = seededVenues.toList()
+          ..sort((a, b) => a.name.compareTo(b.name));
+        return fallback;
+      }
+
+      venues.sort((a, b) => a.name.compareTo(b.name));
       return venues;
     });
   }
@@ -104,12 +111,31 @@ class FirestoreSurplusRepository implements SurplusRepository {
 
   @override
   Stream<Reservation?> watchReservation(String reservationId) {
-    return _reservationsRef.doc(reservationId).snapshots().map((doc) {
+    final docStream = _reservationsRef.doc(reservationId).snapshots().map((doc) {
       if (!doc.exists || doc.data() == null) {
         return null;
       }
-      return Reservation.fromMap(doc.data()!, id: doc.id);
+      final reservation = Reservation.fromMap(doc.data()!, id: doc.id);
+      _reservationCache[reservation.id] = reservation;
+      return reservation;
+    }).handleError((error, stackTrace) {
+      // If client auth is unavailable, Firestore read can fail (permission-denied).
+      // Keep UI alive with cached reservation from reserve API response.
     });
+
+    final cached = _reservationCache[reservationId];
+    if (cached != null) {
+      return Stream<Reservation?>.multi((controller) {
+        controller.add(cached);
+        final sub = docStream.listen(
+          controller.add,
+          onDone: controller.close,
+        );
+        controller.onCancel = sub.cancel;
+      });
+    }
+
+    return docStream;
   }
 
   @override
@@ -262,7 +288,9 @@ class FirestoreSurplusRepository implements SurplusRepository {
     if (id.isEmpty) {
       throw const ValidationException('Reservation response missing id.');
     }
-    return Reservation.fromMap(map, id: id);
+    final reservation = Reservation.fromMap(map, id: id);
+    _reservationCache[id] = reservation;
+    return reservation;
   }
 
   @override

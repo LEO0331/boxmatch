@@ -60,6 +60,8 @@ class AppStrings {
 
   String get reservationConfirmed => _zh ? '預約成功' : 'Reservation confirmed';
   String get reservationNotFound => _zh ? '找不到此預約。' : 'Reservation not found.';
+  String get offlineIdentityMode =>
+      _zh ? '使用離線身份模式' : 'Using offline identity mode';
   String get showPickupCodeHelp => _zh
       ? '請在取餐時向企業出示這組 4 位數代碼。'
       : 'Show this 4-digit code to the enterprise at pickup.';

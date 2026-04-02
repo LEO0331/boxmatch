@@ -20,7 +20,9 @@ class ReservationConfirmationPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final repository = AppScope.of(context).repository;
+    final dependencies = AppScope.of(context);
+    final repository = dependencies.repository;
+    final identityService = dependencies.identityService;
     final s = AppStrings.of(context);
 
     return Scaffold(
@@ -65,6 +67,16 @@ class ReservationConfirmationPage extends StatelessWidget {
               return ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
+                  if (identityService.isUsingLocalFallback)
+                    Card(
+                      color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Text(s.offlineIdentityMode),
+                      ),
+                    ),
+                  if (identityService.isUsingLocalFallback)
+                    const SizedBox(height: 12),
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(20),
