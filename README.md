@@ -114,3 +114,20 @@ Optional knobs:
 
 - 30-day POC board for GitHub Wiki:
   - [docs/wiki/30-day-poc-board.md](https://github.com/LEO0331/boxmatch/wiki/30%E2%80%90Day-POC-Execution-Plan-(Free%E2%80%90Tier-First))
+
+## Postman API Collection
+
+Recommended run order in collection:
+
+1. `Health`
+2. `Enterprise - Create listing`
+3. `Enterprise - Validate token`
+4. `Recipient - Reserve listing`
+5. `Recipient - Reserve replay (same idempotency key)`
+6. `Enterprise - List reservations`
+7. `Enterprise - Update listing`
+8. `Enterprise - Confirm pickup`
+9. `Enterprise - Rotate token`
+10. `Enterprise - Revoke token`
+
+Collection tests auto-save `listingId`, `token`, `reservationId`, `pickupCode` for downstream requests.
