@@ -110,7 +110,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.pump(const Duration(milliseconds: 600));
-    expect(find.textContaining('Invalid or revoked edit token.'), findsNothing);
+    expect(find.textContaining('Invalid token'), findsNothing);
     expect(
       find.widgetWithText(TextFormField, 'Pickup point (booth / gate)'),
       findsOneWidget,

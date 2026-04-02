@@ -41,16 +41,22 @@ class FirestoreSurplusRepository implements SurplusRepository {
 
   @override
   Future<void> ensureSeedData() async {
-    final existing = await _venuesRef.limit(1).get();
-    if (existing.docs.isNotEmpty) {
+    try {
+      final existing = await _venuesRef.limit(1).get();
+      if (existing.docs.isNotEmpty) {
+        return;
+      }
+
+      final batch = _firestore.batch();
+      for (final venue in seededVenues) {
+        batch.set(_venuesRef.doc(venue.id), venue.toMap());
+      }
+      await batch.commit();
+    } on FirebaseException {
+      // Seed write can be blocked by Firestore rules in production.
+      // This should not force the app to fall back to local demo mode.
       return;
     }
-
-    final batch = _firestore.batch();
-    for (final venue in seededVenues) {
-      batch.set(_venuesRef.doc(venue.id), venue.toMap());
-    }
-    await batch.commit();
   }
 
   @override
@@ -158,8 +164,10 @@ class FirestoreSurplusRepository implements SurplusRepository {
         maxAttempts: 3,
       );
       return response['ok'] == true;
-    } on SurplusException {
+    } on PermissionDeniedException {
       return false;
+    } on SurplusException {
+      rethrow;
     }
   }
 
@@ -396,21 +404,22 @@ class FirestoreSurplusRepository implements SurplusRepository {
         if (response.statusCode == 403) {
           throw PermissionDeniedException(resolvedMessage);
         }
+        if (response.statusCode >= 500) {
+          throw const ApiUnavailableException('Cannot reach API');
+        }
         throw ValidationException(resolvedMessage);
       } on TimeoutException {
         if (attempt < maxAttempts) {
           await Future<void>.delayed(_retryDelay(attempt));
           continue;
         }
-        throw const ValidationException('Network timeout. Please try again.');
+        throw const ApiUnavailableException('Cannot reach API');
       } on http.ClientException {
         if (attempt < maxAttempts) {
           await Future<void>.delayed(_retryDelay(attempt));
           continue;
         }
-        throw const ValidationException(
-          'Network error. Please check connection and try again.',
-        );
+        throw const ApiUnavailableException('Cannot reach API');
       }
     }
 
