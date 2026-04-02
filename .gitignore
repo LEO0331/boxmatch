@@ -65,3 +65,5 @@ npm-debug.log*
 firebase-debug.log*
 firestore-debug.log*
 serviceAccount.json
+
+.omx

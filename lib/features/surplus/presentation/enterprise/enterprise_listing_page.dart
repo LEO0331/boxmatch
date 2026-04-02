@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../../../app/app_scope.dart';
 import '../../../../core/i18n/app_strings.dart';
@@ -36,6 +37,16 @@ class _QuickPostTemplate {
 
 const _quickTemplates = <_QuickPostTemplate>[
   _QuickPostTemplate(
+    id: 'default',
+    nameEn: 'Default Booth Meal',
+    nameZh: '預設展位餐盒',
+    itemType: 'Lunchbox',
+    description: 'Fresh boxed meal from booth surplus.',
+    defaultQuantity: 20,
+    pickupDurationMinutes: 90,
+    expireAfterMinutes: 120,
+  ),
+  _QuickPostTemplate(
     id: 'lunchbox',
     nameEn: 'Lunchbox Batch',
     nameZh: '便當批次',
@@ -65,7 +76,84 @@ const _quickTemplates = <_QuickPostTemplate>[
     pickupDurationMinutes: 90,
     expireAfterMinutes: 150,
   ),
+  _QuickPostTemplate(
+    id: 'vegan',
+    nameEn: 'Vegan Box',
+    nameZh: '蔬食餐盒',
+    itemType: 'Vegan Lunchbox',
+    description: 'Sealed vegetarian meal boxes.',
+    defaultQuantity: 12,
+    pickupDurationMinutes: 80,
+    expireAfterMinutes: 120,
+  ),
+  _QuickPostTemplate(
+    id: 'fruit',
+    nameEn: 'Fruit Cups',
+    nameZh: '水果杯',
+    itemType: 'Fruit Cup',
+    description: 'Fresh cut fruit cups, keep chilled.',
+    defaultQuantity: 18,
+    pickupDurationMinutes: 60,
+    expireAfterMinutes: 90,
+  ),
+  _QuickPostTemplate(
+    id: 'bakery',
+    nameEn: 'Bakery Pack',
+    nameZh: '烘焙麵包',
+    itemType: 'Bread / Bakery',
+    description: 'Unopened bread and pastry packs from booth stock.',
+    defaultQuantity: 14,
+    pickupDurationMinutes: 100,
+    expireAfterMinutes: 180,
+  ),
+  _QuickPostTemplate(
+    id: 'water',
+    nameEn: 'Water Bottles',
+    nameZh: '瓶裝水',
+    itemType: 'Water',
+    description: 'Sealed bottled water, room temperature.',
+    defaultQuantity: 40,
+    pickupDurationMinutes: 150,
+    expireAfterMinutes: 240,
+  ),
 ];
+
+const _defaultTemplateId = 'default';
+
+const _venueDefaultPickupPoint = <String, ({String zh, String en})>{
+  'taipei-nangang-exhibition-center-hall-1': (
+    zh: '南港展覽館一館 服務台旁',
+    en: 'Hall 1 service desk side',
+  ),
+  'taipei-nangang-exhibition-center-hall-2': (
+    zh: '南港展覽館二館 主入口服務台',
+    en: 'Hall 2 main entrance service desk',
+  ),
+  'songshan-cultural-park': (
+    zh: '松山文創園區 服務台',
+    en: 'Songshan Creative Park service desk',
+  ),
+};
+
+class _TemplatePerformance {
+  const _TemplatePerformance({
+    required this.templateId,
+    required this.templateName,
+    required this.totalReservations,
+    required this.completedReservations,
+    required this.cancelledReservations,
+    required this.completedRate,
+    required this.cancelledRate,
+  });
+
+  final String templateId;
+  final String templateName;
+  final int totalReservations;
+  final int completedReservations;
+  final int cancelledReservations;
+  final double completedRate;
+  final double cancelledRate;
+}
 
 class EnterpriseListingPage extends StatefulWidget {
   const EnterpriseListingPage({super.key, this.listingId, this.token});
@@ -88,6 +176,8 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
 
   String? _selectedVenueId;
   String? _selectedTemplateId;
+  String? _lastAutoPickupPoint;
+  Future<List<_TemplatePerformance>>? _templatePerformanceFuture;
   DateTime _pickupStartAt = DateTime.now().add(const Duration(minutes: 20));
   DateTime _pickupEndAt = DateTime.now().add(const Duration(hours: 2));
   DateTime _expiresAt = DateTime.now().add(
@@ -99,6 +189,7 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
   String? _editToken;
   String? _createdEditLink;
   String? _errorMessage;
+  String? _riskHintMessage;
   bool _tokenRevoked = false;
 
   bool get _isEditMode => widget.listingId != null;
@@ -121,7 +212,9 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
     super.didChangeDependencies();
     if (!_initialized) {
       _initialized = true;
+      _applyDefaultTemplate();
       _bootstrap();
+      _templatePerformanceFuture = _loadTemplatePerformance();
     }
   }
 
@@ -181,6 +274,7 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
     setState(() {
       _editToken = token;
       _selectedVenueId = listing.venueId;
+      _selectedTemplateId = listing.templateId ?? _defaultTemplateId;
       _pickupPointController.text = listing.pickupPointText;
       _itemTypeController.text = listing.itemType;
       _descriptionController.text = listing.description;
@@ -210,6 +304,205 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
     });
   }
 
+  void _applyDefaultTemplate() {
+    final defaultTemplate = _quickTemplates.firstWhere(
+      (template) => template.id == _defaultTemplateId,
+      orElse: () => _quickTemplates.first,
+    );
+    _applyTemplate(defaultTemplate);
+  }
+
+  String? _defaultPickupPointForVenue({
+    required String? venueId,
+    required bool isZh,
+  }) {
+    if (venueId == null) {
+      return null;
+    }
+    final preset = _venueDefaultPickupPoint[venueId];
+    if (preset == null) {
+      return null;
+    }
+    return isZh ? preset.zh : preset.en;
+  }
+
+  void _applyVenueDefaultPickupPoint({
+    required String? venueId,
+    required bool isZh,
+    bool force = false,
+  }) {
+    final defaultPickup = _defaultPickupPointForVenue(
+      venueId: venueId,
+      isZh: isZh,
+    );
+    if (defaultPickup == null) {
+      return;
+    }
+    final current = _pickupPointController.text.trim();
+    if (force || current.isEmpty || current == (_lastAutoPickupPoint ?? '')) {
+      _pickupPointController.text = defaultPickup;
+      _lastAutoPickupPoint = defaultPickup;
+    }
+  }
+
+  List<String> _collectRiskWarnings(ListingInput input) {
+    final warnings = <String>[];
+    final now = DateTime.now();
+    final pickupWindow = input.pickupEndAt.difference(input.pickupStartAt);
+    final untilStart = input.pickupStartAt.difference(now);
+    final expireAfterStart = input.expiresAt.difference(input.pickupStartAt);
+
+    if (pickupWindow < const Duration(minutes: 45)) {
+      warnings.add(
+        'Pickup window is short (${pickupWindow.inMinutes} min). Recommend at least 45 min.',
+      );
+    }
+    if (untilStart < const Duration(minutes: 20)) {
+      warnings.add(
+        'Pickup start is very soon (${untilStart.inMinutes} min). Recipients may not arrive in time.',
+      );
+    }
+    if (expireAfterStart < const Duration(minutes: 60)) {
+      warnings.add(
+        'Expiry is close to pickup start (${expireAfterStart.inMinutes} min). Consider extending expiry.',
+      );
+    }
+
+    return warnings;
+  }
+
+  Future<bool> _confirmRiskWarnings(List<String> warnings) async {
+    if (warnings.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _riskHintMessage = null;
+        });
+      }
+      return true;
+    }
+
+    final isZh = AppScope.of(context).localeController.isZhTw;
+    final summary = warnings.take(3).join(' / ');
+    if (mounted) {
+      setState(() {
+        _riskHintMessage = isZh
+            ? '發佈風險提醒：$summary'
+            : 'Pre-publish risk hint: $summary';
+      });
+    }
+    return true;
+  }
+
+  String _resolveTemplateIdFromListingMap(Map<String, dynamic> map) {
+    final rawTemplateId = (map['templateId'] as String?)?.trim();
+    if (rawTemplateId != null &&
+        rawTemplateId.isNotEmpty &&
+        _quickTemplates.any((template) => template.id == rawTemplateId)) {
+      return rawTemplateId;
+    }
+
+    final itemType = (map['itemType'] as String? ?? '').trim().toLowerCase();
+    final description = (map['description'] as String? ?? '')
+        .trim()
+        .toLowerCase();
+    for (final template in _quickTemplates.where(
+      (template) => template.id != _defaultTemplateId,
+    )) {
+      if (itemType == template.itemType.trim().toLowerCase() &&
+          description == template.description.trim().toLowerCase()) {
+        return template.id;
+      }
+    }
+    return _defaultTemplateId;
+  }
+
+  Future<List<_TemplatePerformance>> _loadTemplatePerformance() async {
+    if (!AppScope.of(context).usingFirebase) {
+      return const <_TemplatePerformance>[];
+    }
+
+    try {
+      final firestore = FirebaseFirestore.instance;
+      final listingsSnap = await firestore
+          .collection('listings')
+          .limit(500)
+          .get();
+      final reservationsSnap = await firestore
+          .collection('reservations')
+          .limit(2000)
+          .get();
+
+      final listingToTemplate = <String, String>{};
+      for (final doc in listingsSnap.docs) {
+        listingToTemplate[doc.id] = _resolveTemplateIdFromListingMap(
+          doc.data(),
+        );
+      }
+
+      final total = <String, int>{};
+      final completed = <String, int>{};
+      final cancelled = <String, int>{};
+
+      for (final doc in reservationsSnap.docs) {
+        final data = doc.data();
+        final listingId = (data['listingId'] as String?) ?? '';
+        final templateId = listingToTemplate[listingId];
+        if (templateId == null || templateId.isEmpty) {
+          continue;
+        }
+        final status = (data['status'] as String?) ?? 'reserved';
+        total[templateId] = (total[templateId] ?? 0) + 1;
+        if (status == 'completed') {
+          completed[templateId] = (completed[templateId] ?? 0) + 1;
+        }
+        if (status == 'cancelled') {
+          cancelled[templateId] = (cancelled[templateId] ?? 0) + 1;
+        }
+      }
+
+      final list =
+          _quickTemplates
+              .map((template) {
+                final totalReservations = total[template.id] ?? 0;
+                final completedReservations = completed[template.id] ?? 0;
+                final cancelledReservations = cancelled[template.id] ?? 0;
+                final completedRate = totalReservations == 0
+                    ? 0.0
+                    : completedReservations / totalReservations.toDouble();
+                final cancelledRate = totalReservations == 0
+                    ? 0.0
+                    : cancelledReservations / totalReservations.toDouble();
+                return _TemplatePerformance(
+                  templateId: template.id,
+                  templateName: AppScope.of(context).localeController.isZhTw
+                      ? template.nameZh
+                      : template.nameEn,
+                  totalReservations: totalReservations,
+                  completedReservations: completedReservations,
+                  cancelledReservations: cancelledReservations,
+                  completedRate: completedRate,
+                  cancelledRate: cancelledRate,
+                );
+              })
+              .where((item) => item.totalReservations > 0)
+              .toList()
+            ..sort((a, b) {
+              final completedCmp = b.completedRate.compareTo(a.completedRate);
+              if (completedCmp != 0) {
+                return completedCmp;
+              }
+              final cancelledCmp = a.cancelledRate.compareTo(b.cancelledRate);
+              if (cancelledCmp != 0) {
+                return cancelledCmp;
+              }
+              return b.totalReservations.compareTo(a.totalReservations);
+            });
+      return list;
+    } catch (_) {
+      return const <_TemplatePerformance>[];
+    }
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) {
       return;
@@ -222,10 +515,6 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
       ).showSnackBar(const SnackBar(content: Text('Please select a venue.')));
       return;
     }
-
-    setState(() {
-      _busy = true;
-    });
 
     final dependencies = AppScope.of(context);
 
@@ -243,9 +532,20 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
       displayNameOptional: _displayNameController.text.trim().isEmpty
           ? null
           : _displayNameController.text.trim(),
+      templateId: _selectedTemplateId ?? _defaultTemplateId,
       visibility: ListingVisibility.minimal,
       disclaimerAccepted: _disclaimerAccepted,
     );
+
+    final warnings = _collectRiskWarnings(input);
+    final proceed = await _confirmRiskWarnings(warnings);
+    if (!proceed || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _busy = true;
+    });
 
     try {
       if (_isEditMode) {
@@ -553,6 +853,10 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
 
           if (_selectedVenueId == null && venues.isNotEmpty) {
             _selectedVenueId = venues.first.id;
+            _applyVenueDefaultPickupPoint(
+              venueId: _selectedVenueId,
+              isZh: AppScope.of(context).localeController.isZhTw,
+            );
           }
 
           return ListView(
@@ -591,6 +895,12 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
                               : (value) {
                                   setState(() {
                                     _selectedVenueId = value;
+                                    _applyVenueDefaultPickupPoint(
+                                      venueId: value,
+                                      isZh: AppScope.of(
+                                        context,
+                                      ).localeController.isZhTw,
+                                    );
                                   });
                                 },
                           decoration: const InputDecoration(labelText: 'Venue'),
@@ -607,6 +917,29 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
                             }
                             return null;
                           },
+                        ),
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: OutlinedButton.icon(
+                            onPressed: _busy
+                                ? null
+                                : () => setState(() {
+                                    _applyVenueDefaultPickupPoint(
+                                      venueId: _selectedVenueId,
+                                      isZh: AppScope.of(
+                                        context,
+                                      ).localeController.isZhTw,
+                                      force: true,
+                                    );
+                                  }),
+                            icon: const Icon(Icons.place_outlined),
+                            label: Text(
+                              AppScope.of(context).localeController.isZhTw
+                                  ? '套用場館預設取餐點'
+                                  : 'Use venue default pickup point',
+                            ),
+                          ),
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
@@ -724,6 +1057,41 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
                                 },
                           title: Text(s.reserveDisclaimer),
                         ),
+                        if ((_riskHintMessage ?? '').isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFF7E8),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: const Color(0xFFE5C27A),
+                              ),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Padding(
+                                  padding: EdgeInsets.only(top: 2, right: 6),
+                                  child: Icon(
+                                    Icons.warning_amber_rounded,
+                                    size: 16,
+                                    color: Color(0xFFB26A00),
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Text(
+                                    _riskHintMessage!,
+                                    style: const TextStyle(
+                                      color: Color(0xFF7A4A00),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 12),
                         FilledButton.icon(
                           onPressed: _busy || _tokenRevoked ? null : _submit,
@@ -766,6 +1134,7 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
 
   Widget _buildTemplateCard(BuildContext context) {
     final isZh = AppScope.of(context).localeController.isZhTw;
+    final isDefaultSelected = _selectedTemplateId == _defaultTemplateId;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -775,6 +1144,30 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
             Text(
               isZh ? '快速模板（加速發佈）' : 'Quick templates (faster post)',
               style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              isZh
+                  ? '可先選範本，再微調欄位。想回到標準版可按「回復預設」。'
+                  : 'Pick a template first, then fine-tune fields. Use reset to go back to default.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: [
+                FilledButton.tonalIcon(
+                  onPressed: _busy ? null : _applyDefaultTemplate,
+                  icon: const Icon(Icons.restart_alt_outlined),
+                  label: Text(
+                    isZh
+                        ? (isDefaultSelected ? '目前為預設' : '回復預設')
+                        : (isDefaultSelected
+                              ? 'Default active'
+                              : 'Reset to default'),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 8),
             Wrap(
@@ -789,6 +1182,71 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
                     ),
                   )
                   .toList(),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    isZh ? '模板成效（近期）' : 'Template performance (recent)',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ),
+                IconButton(
+                  tooltip: isZh ? '重新整理統計' : 'Refresh performance',
+                  onPressed: _busy
+                      ? null
+                      : () {
+                          setState(() {
+                            _templatePerformanceFuture =
+                                _loadTemplatePerformance();
+                          });
+                        },
+                  icon: const Icon(Icons.refresh),
+                ),
+              ],
+            ),
+            FutureBuilder<List<_TemplatePerformance>>(
+              future: _templatePerformanceFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8),
+                    child: LinearProgressIndicator(minHeight: 2),
+                  );
+                }
+                final items = snapshot.data ?? const <_TemplatePerformance>[];
+                if (items.isEmpty) {
+                  return Text(
+                    isZh
+                        ? '目前樣本不足，發佈並完成更多預約後會顯示成效排行。'
+                        : 'Not enough sample yet. Performance ranking appears after more reservations.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  );
+                }
+                return Column(
+                  children: items.take(3).map((item) {
+                    final completedPercent = (item.completedRate * 100)
+                        .toStringAsFixed(0);
+                    final cancelledPercent = (item.cancelledRate * 100)
+                        .toStringAsFixed(0);
+                    return ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(
+                        Icons.insights_outlined,
+                        color: Color(0xFF2D6A4F),
+                      ),
+                      title: Text(item.templateName),
+                      subtitle: Text(
+                        isZh
+                            ? '完成率 $completedPercent% · 取消率 $cancelledPercent% · 樣本 ${item.totalReservations}'
+                            : 'Completion $completedPercent% · Cancel $cancelledPercent% · Sample ${item.totalReservations}',
+                      ),
+                    );
+                  }).toList(),
+                );
+              },
             ),
           ],
         ),

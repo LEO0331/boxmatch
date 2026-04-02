@@ -436,6 +436,7 @@ class FirestoreSurplusRepository implements SurplusRepository {
       'pickupEndAt': input.pickupEndAt.toUtc().toIso8601String(),
       'expiresAt': input.expiresAt.toUtc().toIso8601String(),
       'displayNameOptional': input.displayNameOptional,
+      'templateId': input.templateId,
       'visibility': input.visibility.name,
     };
   }

@@ -15,6 +15,7 @@ class ListingInput {
     required this.visibility,
     required this.disclaimerAccepted,
     this.displayNameOptional,
+    this.templateId,
   });
 
   final String venueId;
@@ -28,6 +29,7 @@ class ListingInput {
   final DateTime pickupEndAt;
   final DateTime expiresAt;
   final String? displayNameOptional;
+  final String? templateId;
   final ListingVisibility visibility;
   final bool disclaimerAccepted;
 }
