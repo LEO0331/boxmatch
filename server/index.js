@@ -40,6 +40,10 @@ const UNVERIFIED_DAILY_LIMIT = Math.max(
   1,
   Number(process.env.UNVERIFIED_DAILY_LIMIT || 5)
 );
+const RECIPIENT_DAILY_RESERVATION_LIMIT = Math.max(
+  1,
+  Number(process.env.RECIPIENT_DAILY_RESERVATION_LIMIT || 5)
+);
 
 function sha256(value) {
   return crypto.createHash('sha256').update(value, 'utf8').digest('hex');
@@ -552,6 +556,22 @@ app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
         throw new Error('Idempotency key conflict.');
       }
 
+      const now = nowDate();
+      const from = startOfDay(now);
+      const to = endOfDay(now);
+      const recipientDailySnap = await tx.get(
+        db
+          .collection(RESERVATIONS)
+          .where('claimerUid', '==', claimerUid)
+          .where('createdAt', '>=', from)
+          .where('createdAt', '<', to)
+      );
+      if (recipientDailySnap.size >= RECIPIENT_DAILY_RESERVATION_LIMIT) {
+        throw new Error(
+          `Recipient daily reservation limit reached (${RECIPIENT_DAILY_RESERVATION_LIMIT}).`
+        );
+      }
+
       const listingRef = db.collection(LISTINGS).doc(listingId);
       const listingSnap = await tx.get(listingRef);
       if (!listingSnap.exists) {
@@ -562,7 +582,6 @@ app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
       const expiresAt = listing.expiresAt?.toDate
         ? listing.expiresAt.toDate()
         : new Date(listing.expiresAt);
-      const now = nowDate();
       const quantityRemaining = Number(listing.quantityRemaining || 0);
       const status = String(listing.status || 'active');
 
@@ -664,12 +683,17 @@ app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
     const status = [
       'Listing not found.',
       'This listing is no longer available.',
-      'Idempotency key conflict.'
+      'Idempotency key conflict.',
+      `Recipient daily reservation limit reached (${RECIPIENT_DAILY_RESERVATION_LIMIT}).`
     ].includes(message)
-      ? 400
+      ? message.startsWith('Recipient daily reservation limit reached')
+        ? 429
+        : 400
       : 500;
     const reasonCode = message === 'Idempotency key conflict.'
       ? 'IDEMPOTENCY_KEY_CONFLICT'
+      : message.startsWith('Recipient daily reservation limit reached')
+      ? 'RECIPIENT_DAILY_LIMIT_REACHED'
       : status == 400
       ? 'RESERVE_FAILED_BUSINESS_RULE'
       : 'RESERVE_FAILED_INTERNAL';

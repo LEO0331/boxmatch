@@ -48,6 +48,11 @@ Base URL (after deploy on Render):
 }
 ```
 
+Business rule:
+
+- recipient daily reservation cap is enforced by `claimerUid` + UTC day.
+- when cap is hit, API returns `429` with code `RECIPIENT_DAILY_LIMIT_REACHED`.
+
 ### Create listing
 
 ```json
@@ -124,6 +129,7 @@ Exports are written to `../Documents/boxmatch/reports`.
 - `FIREBASE_PRIVATE_KEY` (use raw key with `\n` escaped)
 - `ENABLE_KPI_EVENT_LOGS` (optional; set `true` only when raw event audit is needed)
 - `UNVERIFIED_DAILY_LIMIT` (optional; default `5`)
+- `RECIPIENT_DAILY_RESERVATION_LIMIT` (optional; default `5`)
 
 ## GitHub Actions secret needed
 
