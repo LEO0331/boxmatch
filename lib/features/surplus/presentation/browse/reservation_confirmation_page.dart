@@ -92,84 +92,177 @@ class ReservationConfirmationPage extends StatelessWidget {
               }
 
               final listing = listingSnapshot.data;
-              return ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  if (identityService.isUsingLocalFallback)
-                    Card(
-                      color: Theme.of(context).colorScheme.surfaceContainerHigh,
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Text(s.offlineIdentityMode),
+              return StreamBuilder<List<Listing>>(
+                stream: repository.watchActiveListings(),
+                builder: (context, activeListingsSnapshot) {
+                  final activeListings =
+                      activeListingsSnapshot.data ?? const <Listing>[];
+                  final alias = listing?.displayNameOptional?.trim() ?? '';
+                  final isFrequentEnterprise =
+                      alias.isNotEmpty &&
+                      activeListings
+                              .where(
+                                (item) =>
+                                    (item.displayNameOptional ?? '')
+                                        .trim()
+                                        .toLowerCase() ==
+                                    alias.toLowerCase(),
+                              )
+                              .length >=
+                          2;
+
+                  return ListView(
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      if (identityService.isUsingLocalFallback)
+                        Card(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.surfaceContainerHigh,
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Text(s.offlineIdentityMode),
+                          ),
+                        ),
+                      if (identityService.isUsingLocalFallback)
+                        const SizedBox(height: 12),
+                      Card(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerLow,
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                s.privacyFaqTitle,
+                                style: Theme.of(context).textTheme.titleSmall,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                s.privacyNotice,
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                s.faqNotice,
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                    ),
-                  if (identityService.isUsingLocalFallback)
-                    const SizedBox(height: 12),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
-                        children: [
-                          Text(
-                            reservation.pickupCode,
-                            style: Theme.of(context).textTheme.displayMedium,
+                      const SizedBox(height: 12),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: Column(
+                            children: [
+                              Text(
+                                reservation.pickupCode,
+                                style: Theme.of(
+                                  context,
+                                ).textTheme.displayMedium,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(s.showPickupCodeHelp),
+                              const SizedBox(height: 12),
+                              OutlinedButton.icon(
+                                onPressed: () => context.go('/my-reservations'),
+                                icon: const Icon(Icons.receipt_long_outlined),
+                                label: Text(s.myReservationsCta),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 8),
-                          Text(s.showPickupCodeHelp),
-                          const SizedBox(height: 12),
-                          OutlinedButton.icon(
-                            onPressed: () => context.go('/my-reservations'),
-                            icon: const Icon(Icons.receipt_long_outlined),
-                            label: Text(s.myReservationsCta),
-                          ),
-                        ],
+                        ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  _ReservationStatusTimeline(reservation: reservation),
-                  const SizedBox(height: 12),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Reservation status: ${s.statusLabel(_statusToLabel(reservation.status))}',
+                      const SizedBox(height: 12),
+                      _ReservationStatusTimeline(reservation: reservation),
+                      const SizedBox(height: 12),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Reservation status: ${s.statusLabel(_statusToLabel(reservation.status))}',
+                              ),
+                              const SizedBox(height: 8),
+                              if (listing != null) ...[
+                                Text('Item: ${listing.itemType}'),
+                                Text(
+                                  'Pickup point: ${listing.pickupPointText}',
+                                ),
+                                if ((listing.displayNameOptional ?? '')
+                                    .trim()
+                                    .isNotEmpty)
+                                  Text(
+                                    'Enterprise: ${listing.displayNameOptional}',
+                                  ),
+                                if (listing.enterpriseVerified ||
+                                    isFrequentEnterprise)
+                                  Padding(
+                                    padding: const EdgeInsets.only(
+                                      top: 6,
+                                      bottom: 4,
+                                    ),
+                                    child: Wrap(
+                                      spacing: 8,
+                                      runSpacing: 6,
+                                      children: [
+                                        if (listing.enterpriseVerified)
+                                          Chip(
+                                            avatar: const Icon(
+                                              Icons.verified,
+                                              size: 16,
+                                              color: Color(0xFF2D6A4F),
+                                            ),
+                                            label: Text(s.verifiedEnterprise),
+                                          ),
+                                        if (isFrequentEnterprise)
+                                          Chip(
+                                            avatar: const Icon(
+                                              Icons.eco_outlined,
+                                              size: 16,
+                                              color: Color(0xFF2D6A4F),
+                                            ),
+                                            label: Text(s.frequentEnterprise),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                Text(
+                                  'Pickup window: ${formatDateTime(listing.pickupStartAt)} - ${formatDateTime(listing.pickupEndAt)}',
+                                ),
+                              ],
+                              Text(
+                                'Reservation expires at: ${formatDateTime(reservation.expiresAt)}',
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                s.publicPickupOnlyNotice,
+                                style: const TextStyle(
+                                  color: Color(0xFF7A4A00),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              OutlinedButton.icon(
+                                onPressed: () => _reportAbuse(context),
+                                icon: const Icon(
+                                  Icons.report_gmailerrorred_outlined,
+                                ),
+                                label: Text(s.reportSafetyConcern),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 8),
-                          if (listing != null) ...[
-                            Text('Item: ${listing.itemType}'),
-                            Text('Pickup point: ${listing.pickupPointText}'),
-                            Text(
-                              'Pickup window: ${formatDateTime(listing.pickupStartAt)} - ${formatDateTime(listing.pickupEndAt)}',
-                            ),
-                          ],
-                          Text(
-                            'Reservation expires at: ${formatDateTime(reservation.expiresAt)}',
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            s.publicPickupOnlyNotice,
-                            style: const TextStyle(
-                              color: Color(0xFF7A4A00),
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          OutlinedButton.icon(
-                            onPressed: () => _reportAbuse(context),
-                            icon: const Icon(
-                              Icons.report_gmailerrorred_outlined,
-                            ),
-                            label: Text(s.reportSafetyConcern),
-                          ),
-                        ],
+                        ),
                       ),
-                    ),
-                  ),
-                ],
+                    ],
+                  );
+                },
               );
             },
           );

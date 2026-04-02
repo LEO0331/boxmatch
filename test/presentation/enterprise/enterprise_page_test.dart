@@ -92,6 +92,34 @@ void main() {
     expect(find.widgetWithText(OutlinedButton, 'Copy link'), findsOneWidget);
   });
 
+  testWidgets(
+    'create mode shows template analytics and can apply venue default pickup',
+    (tester) async {
+      final repo = InMemorySurplusRepository();
+      await _pumpPage(tester, repo: repo);
+
+      expect(find.textContaining('Template performance'), findsOneWidget);
+      expect(find.byIcon(Icons.restart_alt_outlined), findsOneWidget);
+
+      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.text('Taipei Nangang Exhibition Center Hall 2').last,
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.widgetWithText(OutlinedButton, 'Use venue default pickup point'),
+      );
+      await tester.pumpAndSettle();
+
+      final pickupField = tester.widget<TextFormField>(
+        find.widgetWithText(TextFormField, 'Pickup point (booth / gate)'),
+      );
+      expect(pickupField.controller?.text, 'Hall 2 main entrance service desk');
+    },
+  );
+
   testWidgets('edit mode shows missing token message when token absent', (
     tester,
   ) async {
@@ -116,10 +144,7 @@ void main() {
       token: 'wrong-token',
     );
 
-    expect(
-      find.textContaining('Invalid token'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('Invalid token'), findsOneWidget);
   });
 
   testWidgets('revoke token flow disables token action buttons', (
