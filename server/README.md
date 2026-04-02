@@ -8,6 +8,7 @@ Base URL (after deploy on Render):
 
 - `GET /health`
 - `POST /recipient/listings/:listingId/reserve`
+- `POST /recipient/listings/:listingId/report-abuse`
 - `POST /recipient/reservations/list`
 - `POST /recipient/reservations/:reservationId/cancel`
 - `POST /enterprise/listings/create`
@@ -124,7 +125,58 @@ Exports are written to `/Users/Leo/Documents/boxmatch/reports`.
 - `FIREBASE_CLIENT_EMAIL`
 - `FIREBASE_PRIVATE_KEY` (use raw key with `\n` escaped)
 - `ENABLE_KPI_EVENT_LOGS` (optional; set `true` only when raw event audit is needed)
+- `UNVERIFIED_DAILY_LIMIT` (optional; default `5`)
 
 ## GitHub Actions secret needed
 
 - `RENDER_DEPLOY_HOOK_URL` (from Render service settings)
+
+## Manual Review SOP (Verified Enterprise)
+
+Goal: reduce abuse risk before exposing pickup codes publicly.
+
+### 1) Review intake
+
+- Collect:
+  - enterprise display name (alias)
+  - target venueId
+  - booth / pickup point proof (photo or organizer reference)
+  - event date window
+- Confirm pickup happens only at public venue/service desk.
+
+### 2) Approve in Firestore
+
+Create a doc in `verified_enterprises` with fields:
+
+```json
+{
+  "aliasNormalized": "acme booth a",
+  "venueId": "taipei-nangang-exhibition-center-hall-1",
+  "active": true,
+  "reviewedBy": "ops-name",
+  "reviewedAt": "2026-04-02T00:00:00.000Z",
+  "notes": "manual verification passed"
+}
+```
+
+Rules:
+
+- `aliasNormalized` must be lowercase + trimmed and exactly match the alias enterprise uses in posting.
+- `venueId` must match posting venue.
+- `active=true` means verified badge is granted.
+
+### 3) Runtime behavior
+
+- Verified match:
+  - listing has `enterpriseVerified=true`
+  - client shows `Verified enterprise` badge
+- Unverified:
+  - listing has `enterpriseVerified=false`
+  - create listing is rate-limited by `UNVERIFIED_DAILY_LIMIT` per enterprise key/day
+
+### 4) Incident response
+
+- If suspicious reports appear:
+  1. set matching `verified_enterprises.active=false`
+  2. revoke token for active listings
+  3. review abuse signals in `abuse_signals`

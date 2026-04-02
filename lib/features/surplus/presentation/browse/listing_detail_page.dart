@@ -213,6 +213,17 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
                           Text(
                             'Donor: ${listing.displayNameOptional?.trim().isNotEmpty == true ? listing.displayNameOptional : s.privateDonor}',
                           ),
+                          if (listing.enterpriseVerified) ...[
+                            const SizedBox(height: 6),
+                            Chip(
+                              avatar: const Icon(
+                                Icons.verified,
+                                size: 16,
+                                color: Color(0xFF2D6A4F),
+                              ),
+                              label: Text(s.verifiedEnterprise),
+                            ),
+                          ],
                           const SizedBox(height: 8),
                           Chip(
                             label: Text(
@@ -227,7 +238,20 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
-                      child: Text(s.reserveDisclaimer),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(s.reserveDisclaimer),
+                          const SizedBox(height: 8),
+                          Text(
+                            s.publicPickupOnlyNotice,
+                            style: const TextStyle(
+                              color: Color(0xFF7A4A00),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                   const SizedBox(height: 12),

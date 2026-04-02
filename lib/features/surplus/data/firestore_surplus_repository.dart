@@ -37,8 +37,6 @@ class FirestoreSurplusRepository implements SurplusRepository {
       _firestore.collection('listings');
   CollectionReference<Map<String, dynamic>> get _reservationsRef =>
       _firestore.collection('reservations');
-  CollectionReference<Map<String, dynamic>> get _abuseSignalsRef =>
-      _firestore.collection('abuse_signals');
 
   @override
   Future<void> ensureSeedData() async {
@@ -111,26 +109,27 @@ class FirestoreSurplusRepository implements SurplusRepository {
 
   @override
   Stream<Reservation?> watchReservation(String reservationId) {
-    final docStream = _reservationsRef.doc(reservationId).snapshots().map((doc) {
-      if (!doc.exists || doc.data() == null) {
-        return null;
-      }
-      final reservation = Reservation.fromMap(doc.data()!, id: doc.id);
-      _reservationCache[reservation.id] = reservation;
-      return reservation;
-    }).handleError((error, stackTrace) {
-      // If client auth is unavailable, Firestore read can fail (permission-denied).
-      // Keep UI alive with cached reservation from reserve API response.
-    });
+    final docStream = _reservationsRef
+        .doc(reservationId)
+        .snapshots()
+        .map((doc) {
+          if (!doc.exists || doc.data() == null) {
+            return null;
+          }
+          final reservation = Reservation.fromMap(doc.data()!, id: doc.id);
+          _reservationCache[reservation.id] = reservation;
+          return reservation;
+        })
+        .handleError((error, stackTrace) {
+          // If client auth is unavailable, Firestore read can fail (permission-denied).
+          // Keep UI alive with cached reservation from reserve API response.
+        });
 
     final cached = _reservationCache[reservationId];
     if (cached != null) {
       return Stream<Reservation?>.multi((controller) {
         controller.add(cached);
-        final sub = docStream.listen(
-          controller.add,
-          onDone: controller.close,
-        );
+        final sub = docStream.listen(controller.add, onDone: controller.close);
         controller.onCancel = sub.cancel;
       });
     }
@@ -297,11 +296,9 @@ class FirestoreSurplusRepository implements SurplusRepository {
   Future<List<Reservation>> listRecipientReservations({
     required String claimerUid,
   }) async {
-    final response = await _postJson(
-      '/recipient/reservations/list',
-      {'claimerUid': claimerUid},
-      maxAttempts: 3,
-    );
+    final response = await _postJson('/recipient/reservations/list', {
+      'claimerUid': claimerUid,
+    }, maxAttempts: 3);
     final raw = response['reservations'];
     if (raw is! List) {
       return const <Reservation>[];
@@ -312,8 +309,7 @@ class FirestoreSurplusRepository implements SurplusRepository {
       final reservation = Reservation.fromMap(map, id: id);
       _reservationCache[id] = reservation;
       return reservation;
-    }).toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    }).toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return reservations;
   }
 
@@ -322,11 +318,9 @@ class FirestoreSurplusRepository implements SurplusRepository {
     required String reservationId,
     required String claimerUid,
   }) async {
-    await _postJson(
-      '/recipient/reservations/$reservationId/cancel',
-      {'claimerUid': claimerUid},
-      maxAttempts: 3,
-    );
+    await _postJson('/recipient/reservations/$reservationId/cancel', {
+      'claimerUid': claimerUid,
+    }, maxAttempts: 3);
     final cached = _reservationCache[reservationId];
     if (cached != null && cached.status == ReservationStatus.reserved) {
       _reservationCache[reservationId] = cached.copyWith(
@@ -385,12 +379,10 @@ class FirestoreSurplusRepository implements SurplusRepository {
     required String claimerUid,
     required String reason,
   }) async {
-    await _abuseSignalsRef.add({
-      'listingId': listingId,
+    await _postJson('/recipient/listings/$listingId/report-abuse', {
       'claimerUid': claimerUid,
       'reason': reason,
-      'createdAt': DateTime.now(),
-    });
+    }, maxAttempts: 3);
   }
 
   void _validateInput(ListingInput input) {

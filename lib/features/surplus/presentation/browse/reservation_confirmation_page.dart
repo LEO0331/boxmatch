@@ -8,6 +8,7 @@ import '../../../../core/widgets/load_error_view.dart';
 import '../../../../core/utils/date_time_formatters.dart';
 import '../../../surplus/domain/listing.dart';
 import '../../../surplus/domain/reservation.dart';
+import '../../../surplus/domain/surplus_exceptions.dart';
 
 class ReservationConfirmationPage extends StatelessWidget {
   const ReservationConfirmationPage({
@@ -18,6 +19,32 @@ class ReservationConfirmationPage extends StatelessWidget {
 
   final String listingId;
   final String reservationId;
+
+  Future<void> _reportAbuse(BuildContext context) async {
+    final deps = AppScope.of(context);
+    final s = AppStrings.of(context);
+    try {
+      final uid = await deps.identityService.ensureRecipientUid();
+      await deps.repository.addAbuseSignal(
+        listingId: listingId,
+        claimerUid: uid,
+        reason: 'recipient_report_private_location_request',
+      );
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(s.abuseReported)));
+    } on SurplusException catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -121,6 +148,22 @@ class ReservationConfirmationPage extends StatelessWidget {
                           ],
                           Text(
                             'Reservation expires at: ${formatDateTime(reservation.expiresAt)}',
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            s.publicPickupOnlyNotice,
+                            style: const TextStyle(
+                              color: Color(0xFF7A4A00),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          OutlinedButton.icon(
+                            onPressed: () => _reportAbuse(context),
+                            icon: const Icon(
+                              Icons.report_gmailerrorred_outlined,
+                            ),
+                            label: Text(s.reportSafetyConcern),
                           ),
                         ],
                       ),

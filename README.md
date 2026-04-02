@@ -124,10 +124,12 @@ Recommended run order in collection:
 3. `Enterprise - Validate token`
 4. `Recipient - Reserve listing`
 5. `Recipient - Reserve replay (same idempotency key)`
-6. `Enterprise - List reservations`
-7. `Enterprise - Update listing`
-8. `Enterprise - Confirm pickup`
-9. `Enterprise - Rotate token`
-10. `Enterprise - Revoke token`
+6. `Recipient - List my reservations`
+7. `Recipient - Cancel reservation`
+8. `Enterprise - List reservations`
+9. `Enterprise - Update listing`
+10. `Enterprise - Confirm pickup`
+11. `Enterprise - Rotate token`
+12. `Enterprise - Revoke token`
 
 Collection tests auto-save `listingId`, `token`, `reservationId`, `pickupCode` for downstream requests.

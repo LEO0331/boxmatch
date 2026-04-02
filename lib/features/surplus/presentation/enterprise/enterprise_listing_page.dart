@@ -881,7 +881,8 @@ class _ReservationAdminSection extends StatefulWidget {
   final Map<String, TextEditingController> pickupCodeControllers;
 
   @override
-  State<_ReservationAdminSection> createState() => _ReservationAdminSectionState();
+  State<_ReservationAdminSection> createState() =>
+      _ReservationAdminSectionState();
 }
 
 enum _ReservationFilter { all, pending, confirmed }
@@ -973,45 +974,46 @@ class _ReservationAdminSectionState extends State<_ReservationAdminSection> {
                     ),
                     const SizedBox(height: 8),
                     ...filtered.map((reservation) {
-                    final codeController = widget.pickupCodeControllers.putIfAbsent(
-                      reservation.id,
-                      TextEditingController.new,
-                    );
-                    return Card(
-                      margin: const EdgeInsets.symmetric(vertical: 6),
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Reservation ${_shortReservationId(reservation.id)}',
-                            ),
-                            Text(
-                              'Status: ${s.statusLabel(_toLabel(reservation.status))}',
-                            ),
-                            Text('Qty: ${reservation.qty}'),
-                            const SizedBox(height: 8),
-                            TextField(
-                              controller: codeController,
-                              decoration: const InputDecoration(
-                                labelText: 'Enter 4-digit pickup code',
+                      final codeController = widget.pickupCodeControllers
+                          .putIfAbsent(
+                            reservation.id,
+                            TextEditingController.new,
+                          );
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 6),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Reservation ${_shortReservationId(reservation.id)}',
                               ),
-                            ),
-                            const SizedBox(height: 8),
-                            FilledButton(
-                              onPressed:
-                                  reservation.status ==
-                                      ReservationStatus.reserved
-                                  ? () => widget.onConfirmPickup(reservation)
-                                  : null,
-                              child: const Text('Confirm pickup'),
-                            ),
-                          ],
+                              Text(
+                                'Status: ${s.statusLabel(_toLabel(reservation.status))}',
+                              ),
+                              Text('Qty: ${reservation.qty}'),
+                              const SizedBox(height: 8),
+                              TextField(
+                                controller: codeController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Enter 4-digit pickup code',
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              FilledButton(
+                                onPressed:
+                                    reservation.status ==
+                                        ReservationStatus.reserved
+                                    ? () => widget.onConfirmPickup(reservation)
+                                    : null,
+                                child: const Text('Confirm pickup'),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    );
-                  }),
+                      );
+                    }),
                   ],
                 );
               },

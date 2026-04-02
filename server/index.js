@@ -35,6 +35,11 @@ const IDEMPOTENCY_KEYS = 'idempotency_keys';
 const KPI_EVENTS = 'kpi_events';
 const KPI_DAILY = 'kpi_daily';
 const KPI_SUMMARY = 'kpi_summary';
+const VERIFIED_ENTERPRISES = 'verified_enterprises';
+const UNVERIFIED_DAILY_LIMIT = Math.max(
+  1,
+  Number(process.env.UNVERIFIED_DAILY_LIMIT || 5)
+);
 
 function sha256(value) {
   return crypto.createHash('sha256').update(value, 'utf8').digest('hex');
@@ -236,6 +241,55 @@ function toMillis(value) {
   return d.getTime();
 }
 
+function normalizeText(value) {
+  return String(value || '').trim();
+}
+
+function normalizeAlias(value) {
+  return normalizeText(value).toLowerCase();
+}
+
+function startOfDay(date = nowDate()) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
+function endOfDay(date = nowDate()) {
+  const start = startOfDay(date);
+  return new Date(start.getTime() + 24 * 60 * 60 * 1000);
+}
+
+function resolveClientIp(req) {
+  const forwarded = String(req.headers['x-forwarded-for'] || '').trim();
+  if (forwarded) {
+    const first = forwarded.split(',')[0]?.trim();
+    if (first) return first;
+  }
+  return String(req.ip || req.socket?.remoteAddress || 'unknown').trim();
+}
+
+function deriveEnterpriseKey(req, payload) {
+  const alias = normalizeAlias(payload.displayNameOptional);
+  if (alias) {
+    return `alias:${alias}`;
+  }
+  return `ip:${resolveClientIp(req)}`;
+}
+
+async function isEnterpriseVerified(payload) {
+  const alias = normalizeAlias(payload.displayNameOptional);
+  if (!alias) {
+    return false;
+  }
+  const snap = await db
+    .collection(VERIFIED_ENTERPRISES)
+    .where('aliasNormalized', '==', alias)
+    .where('venueId', '==', String(payload.venueId || ''))
+    .where('active', '==', true)
+    .limit(1)
+    .get();
+  return snap.docs.length > 0;
+}
+
 function resolveListingStatus({ currentStatus, expiresAt, quantityRemaining }) {
   if (currentStatus === 'completed') {
     return 'completed';
@@ -360,6 +414,18 @@ function validateAndBuildCreate(body) {
 
   if (!Object.hasOwn(payload, 'quantityTotal')) {
     errors.push('quantityTotal must be a positive integer.');
+  }
+  if (!normalizeText(payload.venueId)) {
+    errors.push('venueId is required.');
+  }
+  if (!normalizeText(payload.pickupPointText)) {
+    errors.push('pickupPointText is required.');
+  }
+  if (!normalizeText(payload.itemType)) {
+    errors.push('itemType is required.');
+  }
+  if (!normalizeText(payload.description)) {
+    errors.push('description is required.');
   }
 
   return { errors, payload };
@@ -614,6 +680,64 @@ app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
   }
 });
 
+app.post('/recipient/listings/:listingId/report-abuse', async (req, res) => {
+  try {
+    const listingId = req.params.listingId;
+    const claimerUid = String(req.body?.claimerUid || '').trim();
+    const reason = String(req.body?.reason || '').trim();
+    const reservationId = String(req.body?.reservationId || '').trim();
+
+    if (!claimerUid) {
+      return errorResponse(
+        res,
+        400,
+        'claimerUid is required.',
+        'VALIDATION_CLAIMER_UID_REQUIRED'
+      );
+    }
+    if (!reason) {
+      return errorResponse(
+        res,
+        400,
+        'reason is required.',
+        'VALIDATION_ABUSE_REASON_REQUIRED'
+      );
+    }
+
+    await db.collection(ABUSE_SIGNALS).add({
+      listingId,
+      claimerUid,
+      reservationId: reservationId || null,
+      reason,
+      source: 'recipient_report',
+      createdAt: nowDate()
+    });
+    logEvent('warn', 'recipient.abuse.reported', {
+      requestId: req.requestId,
+      listingId,
+      claimerUid,
+      reasonCode: 'RECIPIENT_ABUSE_REPORT_CREATED'
+    });
+
+    return res.json({
+      ok: true,
+      code: 'REPORT_ABUSE_SUCCESS',
+      listingId,
+      reported: true
+    });
+  } catch (error) {
+    logServerError('recipient.abuse.report.failed', req, error, {
+      reasonCode: 'REPORT_ABUSE_FAILED_INTERNAL'
+    });
+    return errorResponse(
+      res,
+      500,
+      'Internal server error.',
+      'REPORT_ABUSE_FAILED_INTERNAL'
+    );
+  }
+});
+
 app.post('/recipient/reservations/list', async (req, res) => {
   try {
     const claimerUid = String(req.body?.claimerUid || '').trim();
@@ -773,6 +897,28 @@ app.post('/enterprise/listings/create', async (req, res) => {
 
     const token = crypto.randomBytes(24).toString('base64url');
     const now = nowDate();
+    const enterpriseKey = deriveEnterpriseKey(req, payload);
+    const enterpriseVerified = await isEnterpriseVerified(payload);
+
+    if (!enterpriseVerified) {
+      const from = startOfDay(now);
+      const to = endOfDay(now);
+      const dailySnap = await db
+        .collection(LISTINGS)
+        .where('enterpriseKey', '==', enterpriseKey)
+        .where('createdAt', '>=', from)
+        .where('createdAt', '<', to)
+        .get();
+      if (dailySnap.size >= UNVERIFIED_DAILY_LIMIT) {
+        return errorResponse(
+          res,
+          429,
+          `Unverified enterprise daily posting limit reached (${UNVERIFIED_DAILY_LIMIT}).`,
+          'UNVERIFIED_DAILY_LIMIT_REACHED'
+        );
+      }
+    }
+
     const listingRef = db.collection(LISTINGS).doc();
 
     await listingRef.set({
@@ -790,6 +936,8 @@ app.post('/enterprise/listings/create', async (req, res) => {
       displayNameOptional: payload.displayNameOptional ?? null,
       visibility: payload.visibility,
       status: 'active',
+      enterpriseVerified,
+      enterpriseKey,
       editTokenHash: sha256(token),
       createdAt: now,
       updatedAt: now
