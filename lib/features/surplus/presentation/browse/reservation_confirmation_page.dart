@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../../app/app_scope.dart';
 import '../../../../core/i18n/app_strings.dart';
@@ -88,6 +89,12 @@ class ReservationConfirmationPage extends StatelessWidget {
                           ),
                           const SizedBox(height: 8),
                           Text(s.showPickupCodeHelp),
+                          const SizedBox(height: 12),
+                          OutlinedButton.icon(
+                            onPressed: () => context.go('/my-reservations'),
+                            icon: const Icon(Icons.receipt_long_outlined),
+                            label: Text(s.myReservationsCta),
+                          ),
                         ],
                       ),
                     ),

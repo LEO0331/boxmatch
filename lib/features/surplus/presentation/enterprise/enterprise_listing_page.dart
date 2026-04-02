@@ -867,7 +867,7 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
   }
 }
 
-class _ReservationAdminSection extends StatelessWidget {
+class _ReservationAdminSection extends StatefulWidget {
   const _ReservationAdminSection({
     required this.listingId,
     required this.token,
@@ -879,6 +879,15 @@ class _ReservationAdminSection extends StatelessWidget {
   final String token;
   final Future<void> Function(Reservation reservation) onConfirmPickup;
   final Map<String, TextEditingController> pickupCodeControllers;
+
+  @override
+  State<_ReservationAdminSection> createState() => _ReservationAdminSectionState();
+}
+
+enum _ReservationFilter { all, pending, confirmed }
+
+class _ReservationAdminSectionState extends State<_ReservationAdminSection> {
+  _ReservationFilter _filter = _ReservationFilter.all;
 
   String _shortReservationId(String id) {
     if (id.isEmpty) {
@@ -902,8 +911,8 @@ class _ReservationAdminSection extends StatelessWidget {
             const SizedBox(height: 8),
             StreamBuilder<List<Reservation>>(
               stream: repository.watchReservationsForListing(
-                listingId: listingId,
-                token: token,
+                listingId: widget.listingId,
+                token: widget.token,
               ),
               builder: (context, snapshot) {
                 final reservations = snapshot.data ?? const <Reservation>[];
@@ -918,9 +927,53 @@ class _ReservationAdminSection extends StatelessWidget {
                   return Text(s.noReservationsYet);
                 }
 
+                final filtered = reservations.where((reservation) {
+                  switch (_filter) {
+                    case _ReservationFilter.all:
+                      return true;
+                    case _ReservationFilter.pending:
+                      return reservation.status == ReservationStatus.reserved;
+                    case _ReservationFilter.confirmed:
+                      return reservation.status == ReservationStatus.completed;
+                  }
+                }).toList();
+
                 return Column(
-                  children: reservations.map((reservation) {
-                    final codeController = pickupCodeControllers.putIfAbsent(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        ChoiceChip(
+                          selected: _filter == _ReservationFilter.all,
+                          label: Text(
+                            AppScope.of(context).localeController.isZhTw
+                                ? '全部'
+                                : 'All',
+                          ),
+                          onSelected: (_) =>
+                              setState(() => _filter = _ReservationFilter.all),
+                        ),
+                        ChoiceChip(
+                          selected: _filter == _ReservationFilter.pending,
+                          label: Text(s.pendingConfirm),
+                          onSelected: (_) => setState(
+                            () => _filter = _ReservationFilter.pending,
+                          ),
+                        ),
+                        ChoiceChip(
+                          selected: _filter == _ReservationFilter.confirmed,
+                          label: Text(s.confirmedFilter),
+                          onSelected: (_) => setState(
+                            () => _filter = _ReservationFilter.confirmed,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    ...filtered.map((reservation) {
+                    final codeController = widget.pickupCodeControllers.putIfAbsent(
                       reservation.id,
                       TextEditingController.new,
                     );
@@ -950,7 +1003,7 @@ class _ReservationAdminSection extends StatelessWidget {
                               onPressed:
                                   reservation.status ==
                                       ReservationStatus.reserved
-                                  ? () => onConfirmPickup(reservation)
+                                  ? () => widget.onConfirmPickup(reservation)
                                   : null,
                               child: const Text('Confirm pickup'),
                             ),
@@ -958,7 +1011,8 @@ class _ReservationAdminSection extends StatelessWidget {
                         ),
                       ),
                     );
-                  }).toList(),
+                  }),
+                  ],
                 );
               },
             ),

@@ -69,6 +69,11 @@ class _ListingsPageState extends State<ListingsPage> {
         title: Text(s.listingsTitle),
         actions: [
           IconButton(
+            onPressed: () => context.go('/my-reservations'),
+            icon: const Icon(Icons.receipt_long_outlined),
+            tooltip: s.myReservationsCta,
+          ),
+          IconButton(
             onPressed: _manualRefresh,
             icon: const Icon(Icons.refresh),
             tooltip: s.refresh,

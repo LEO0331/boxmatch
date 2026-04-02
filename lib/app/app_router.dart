@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import '../core/layout/app_shell.dart';
 import '../features/surplus/presentation/browse/listing_detail_page.dart';
 import '../features/surplus/presentation/browse/listings_page.dart';
+import '../features/surplus/presentation/browse/my_reservations_page.dart';
 import '../features/surplus/presentation/browse/reservation_confirmation_page.dart';
 import '../features/surplus/presentation/enterprise/enterprise_listing_page.dart';
 import '../features/surplus/presentation/map/venues_map_page.dart';
@@ -71,6 +72,10 @@ GoRouter buildRouter() {
             reservationId: state.pathParameters['reservationId']!,
           );
         },
+      ),
+      GoRoute(
+        path: '/my-reservations',
+        builder: (context, state) => const MyReservationsPage(),
       ),
       GoRoute(
         path: '/enterprise/edit/:listingId',
