@@ -140,14 +140,27 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
     }
 
     final dependencies = AppScope.of(context);
-    final canEdit = await dependencies.repository.canEditListing(
-      listingId: listingId,
-      token: token,
-    );
+    late final bool canEdit;
+    try {
+      canEdit = await dependencies.repository.canEditListing(
+        listingId: listingId,
+        token: token,
+      );
+    } on ApiUnavailableException {
+      setState(() {
+        _errorMessage = 'Cannot reach API';
+      });
+      return;
+    } on SurplusException {
+      setState(() {
+        _errorMessage = 'Cannot reach API';
+      });
+      return;
+    }
 
     if (!canEdit) {
       setState(() {
-        _errorMessage = 'Invalid or revoked edit token.';
+        _errorMessage = 'Invalid token';
       });
       return;
     }

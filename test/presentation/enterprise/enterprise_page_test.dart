@@ -117,7 +117,7 @@ void main() {
     );
 
     expect(
-      find.textContaining('Invalid or revoked edit token'),
+      find.textContaining('Invalid token'),
       findsOneWidget,
     );
   });
