@@ -1,5 +1,6 @@
 import 'package:boxmatch/app/app_scope.dart';
 import 'package:boxmatch/features/surplus/data/in_memory_surplus_repository.dart';
+import 'package:boxmatch/features/surplus/domain/listing.dart';
 import 'package:boxmatch/features/surplus/domain/listing_input.dart';
 import 'package:boxmatch/features/surplus/domain/listing_visibility.dart';
 import 'package:boxmatch/features/surplus/domain/reservation.dart';
@@ -15,11 +16,17 @@ class _EnterpriseInstrumentedRepository extends InMemorySurplusRepository {
   bool venuesStreamError = false;
   bool reservationsStreamError = false;
   bool emptyVenues = false;
+  bool canEditThrowsApiUnavailable = false;
+  bool canEditThrowsSurplus = false;
+  bool canEditThrowsUnknown = false;
+  bool forceCanEditTrue = false;
+  bool listingMissing = false;
   bool throwOnCreate = false;
   bool throwOnUpdate = false;
   bool throwOnRotate = false;
   bool throwOnRevoke = false;
   bool throwOnConfirmPickup = false;
+  List<Reservation>? customReservations;
 
   @override
   Stream<List<Venue>> watchVenues() {
@@ -40,10 +47,42 @@ class _EnterpriseInstrumentedRepository extends InMemorySurplusRepository {
     if (reservationsStreamError) {
       return Stream.error(StateError('reservations stream failed'));
     }
+    final custom = customReservations;
+    if (custom != null) {
+      return Stream<List<Reservation>>.value(custom);
+    }
     return super.watchReservationsForListing(
       listingId: listingId,
       token: token,
     );
+  }
+
+  @override
+  Stream<Listing?> watchListing(String listingId) {
+    if (listingMissing) {
+      return Stream<Listing?>.value(null);
+    }
+    return super.watchListing(listingId);
+  }
+
+  @override
+  Future<bool> canEditListing({
+    required String listingId,
+    required String token,
+  }) async {
+    if (canEditThrowsApiUnavailable) {
+      throw const ApiUnavailableException('API unavailable for test.');
+    }
+    if (canEditThrowsSurplus) {
+      throw const ValidationException('Surplus failure for test.');
+    }
+    if (canEditThrowsUnknown) {
+      throw StateError('Unknown failure for test.');
+    }
+    if (forceCanEditTrue) {
+      return true;
+    }
+    return super.canEditListing(listingId: listingId, token: token);
   }
 
   @override
@@ -134,10 +173,14 @@ Future<void> _pumpPage(
   String? listingId,
   String? token,
   bool usingFirebase = false,
+  String language = 'en',
+  Future<List<TemplatePerformanceSummary>> Function()?
+  templatePerformanceLoader,
 }) async {
   final deps = await buildTestDependencies(
     repository: repo,
     usingFirebase: usingFirebase,
+    language: language,
   );
   tester.view.devicePixelRatio = 1.0;
   tester.view.physicalSize = const Size(1200, 2400);
@@ -148,7 +191,11 @@ Future<void> _pumpPage(
     AppScope(
       dependencies: deps,
       child: MaterialApp(
-        home: EnterpriseListingPage(listingId: listingId, token: token),
+        home: EnterpriseListingPage(
+          listingId: listingId,
+          token: token,
+          templatePerformanceLoader: templatePerformanceLoader,
+        ),
       ),
     ),
   );
@@ -227,6 +274,47 @@ void main() {
     },
   );
 
+  testWidgets('create mode renders non-empty template analytics list', (
+    tester,
+  ) async {
+    final repo = InMemorySurplusRepository();
+    await _pumpPage(
+      tester,
+      repo: repo,
+      templatePerformanceLoader: () async => const [
+        TemplatePerformanceSummary(
+          templateId: 'drinks',
+          totalReservations: 10,
+          completedReservations: 9,
+          cancelledReservations: 1,
+          completedRate: 0.9,
+          cancelledRate: 0.1,
+        ),
+        TemplatePerformanceSummary(
+          templateId: 'unknown-template-id',
+          totalReservations: 3,
+          completedReservations: 2,
+          cancelledReservations: 1,
+          completedRate: 0.666666,
+          cancelledRate: 0.333333,
+        ),
+      ],
+    );
+
+    final scrollable = find.byType(Scrollable).first;
+    await tester.scrollUntilVisible(
+      find.textContaining('Template performance'),
+      250,
+      scrollable: scrollable,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bottled Drinks'), findsWidgets);
+    expect(find.text('Default Booth Meal'), findsWidgets);
+    expect(find.textContaining('Completion 90%'), findsOneWidget);
+    expect(find.textContaining('Sample 10'), findsOneWidget);
+  });
+
   testWidgets('edit mode shows missing token message when token absent', (
     tester,
   ) async {
@@ -252,6 +340,74 @@ void main() {
     );
 
     expect(find.textContaining('Invalid token'), findsOneWidget);
+  });
+
+  testWidgets('edit mode shows cannot reach API when canEdit throws', (
+    tester,
+  ) async {
+    final repo = _EnterpriseInstrumentedRepository()
+      ..canEditThrowsApiUnavailable = true;
+    final created = await repo.createListing(_input(DateTime.now()));
+
+    await _pumpPage(
+      tester,
+      repo: repo,
+      listingId: created.listingId,
+      token: created.editToken,
+    );
+
+    expect(find.text('Cannot reach API'), findsOneWidget);
+  });
+
+  testWidgets('edit mode shows cannot reach API when canEdit throws surplus', (
+    tester,
+  ) async {
+    final repo = _EnterpriseInstrumentedRepository()..canEditThrowsSurplus = true;
+    final created = await repo.createListing(_input(DateTime.now()));
+
+    await _pumpPage(
+      tester,
+      repo: repo,
+      listingId: created.listingId,
+      token: created.editToken,
+    );
+
+    expect(find.text('Cannot reach API'), findsOneWidget);
+  });
+
+  testWidgets(
+    'edit mode shows cannot reach API when unexpected error happens',
+    (tester) async {
+      final repo = _EnterpriseInstrumentedRepository()
+        ..canEditThrowsUnknown = true;
+      final created = await repo.createListing(_input(DateTime.now()));
+
+      await _pumpPage(
+        tester,
+        repo: repo,
+        listingId: created.listingId,
+        token: created.editToken,
+      );
+
+      expect(find.text('Cannot reach API'), findsOneWidget);
+    },
+  );
+
+  testWidgets('edit mode shows listing missing state after valid token', (
+    tester,
+  ) async {
+    final repo = _EnterpriseInstrumentedRepository()
+      ..forceCanEditTrue = true
+      ..listingMissing = true;
+
+    await _pumpPage(
+      tester,
+      repo: repo,
+      listingId: 'missing-listing-id',
+      token: 'test-token',
+    );
+
+    expect(find.text('Listing no longer exists.'), findsOneWidget);
   });
 
   testWidgets('revoke token flow disables token action buttons', (
@@ -344,6 +500,35 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Listing updated.'), findsOneWidget);
+  });
+
+  testWidgets('create mode submits with display name optional', (tester) async {
+    final repo = InMemorySurplusRepository();
+    await _pumpPage(tester, repo: repo);
+
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Pickup point (booth / gate)'),
+      'Hall 1 Gate B',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Simple description'),
+      'Display name case',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Display name (optional)'),
+      'Eco Team',
+    );
+    await tester.tap(find.byType(CheckboxListTile).first);
+    await tester.pumpAndSettle();
+
+    final scrollable = find.byType(Scrollable).first;
+    final postButton = find.widgetWithText(FilledButton, 'Post listing');
+    await tester.scrollUntilVisible(postButton, 250, scrollable: scrollable);
+    await tester.tap(postButton);
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Listing posted.'), findsOneWidget);
+    expect(find.textContaining('Save this edit link securely'), findsOneWidget);
   });
 
   testWidgets('rotate token success shows new secure link card', (
@@ -476,6 +661,81 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('Status: Completed'), findsWidgets);
     expect(find.textContaining('Status: Reserved'), findsNothing);
+
+    final allChip = find.textContaining('All (');
+    await tester.tap(allChip);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Status: Completed'), findsWidgets);
+    expect(find.textContaining('Status: Reserved'), findsWidgets);
+  });
+
+  testWidgets('reservation admin shows expired and cancelled statuses', (
+    tester,
+  ) async {
+    final repo = _EnterpriseInstrumentedRepository()
+      ..customReservations = <Reservation>[
+        Reservation(
+          id: 'expired-id-1',
+          listingId: 'listing-for-statuses',
+          claimerUid: 'recipient-expired',
+          qty: 1,
+          pickupCode: '1234',
+          status: ReservationStatus.expired,
+          createdAt: DateTime.now().subtract(const Duration(minutes: 30)),
+          expiresAt: DateTime.now().subtract(const Duration(minutes: 5)),
+        ),
+        Reservation(
+          id: 'cancelled-id-2',
+          listingId: 'listing-for-statuses',
+          claimerUid: 'recipient-cancelled',
+          qty: 1,
+          pickupCode: '5678',
+          status: ReservationStatus.cancelled,
+          createdAt: DateTime.now().subtract(const Duration(minutes: 20)),
+          expiresAt: DateTime.now().add(const Duration(minutes: 30)),
+        ),
+      ];
+    final created = await repo.createListing(_input(DateTime.now()));
+
+    await _pumpPage(
+      tester,
+      repo: repo,
+      listingId: created.listingId,
+      token: created.editToken,
+      language: 'zh-TW',
+    );
+
+    final totalLabelFinder = find.byWidgetPredicate(
+      (widget) =>
+          widget is Text &&
+          ((widget.data?.contains('總數') ?? false) ||
+              (widget.data?.contains('Total') ?? false)),
+    );
+    expect(totalLabelFinder, findsOneWidget);
+
+    final allChipLabelFinder = find.byWidgetPredicate(
+      (widget) =>
+          widget is Text &&
+          ((widget.data?.contains('全部 (2)') ?? false) ||
+              (widget.data?.contains('All (2)') ?? false)),
+    );
+    expect(allChipLabelFinder, findsOneWidget);
+
+    final expiredStatusFinder = find.byWidgetPredicate(
+      (widget) =>
+          widget is Text &&
+          ((widget.data?.contains('Status: 已逾期') ?? false) ||
+              (widget.data?.contains('Status: Expired') ?? false)),
+    );
+    expect(expiredStatusFinder, findsOneWidget);
+
+    final cancelledStatusFinder = find.byWidgetPredicate(
+      (widget) =>
+          widget is Text &&
+          ((widget.data?.contains('Status: 已取消') ?? false) ||
+              (widget.data?.contains('Status: Cancelled') ?? false)),
+    );
+    expect(cancelledStatusFinder, findsOneWidget);
   });
 
   testWidgets('enterprise page shows load error when venues stream fails', (
