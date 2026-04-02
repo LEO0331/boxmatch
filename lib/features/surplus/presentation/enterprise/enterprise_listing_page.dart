@@ -156,6 +156,11 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
         _errorMessage = 'Cannot reach API';
       });
       return;
+    } catch (_) {
+      setState(() {
+        _errorMessage = 'Cannot reach API';
+      });
+      return;
     }
 
     if (!canEdit) {
@@ -875,6 +880,13 @@ class _ReservationAdminSection extends StatelessWidget {
   final Future<void> Function(Reservation reservation) onConfirmPickup;
   final Map<String, TextEditingController> pickupCodeControllers;
 
+  String _shortReservationId(String id) {
+    if (id.isEmpty) {
+      return 'unknown';
+    }
+    return id.length <= 6 ? id : id.substring(0, 6);
+  }
+
   @override
   Widget build(BuildContext context) {
     final repository = AppScope.of(context).repository;
@@ -920,7 +932,7 @@ class _ReservationAdminSection extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Reservation ${reservation.id.substring(0, 6)}',
+                              'Reservation ${_shortReservationId(reservation.id)}',
                             ),
                             Text(
                               'Status: ${s.statusLabel(_toLabel(reservation.status))}',
