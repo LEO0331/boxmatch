@@ -155,6 +155,140 @@ class _TemplatePerformance {
   final double cancelledRate;
 }
 
+class TemplatePerformanceSummary {
+  const TemplatePerformanceSummary({
+    required this.templateId,
+    required this.totalReservations,
+    required this.completedReservations,
+    required this.cancelledReservations,
+    required this.completedRate,
+    required this.cancelledRate,
+  });
+
+  final String templateId;
+  final int totalReservations;
+  final int completedReservations;
+  final int cancelledReservations;
+  final double completedRate;
+  final double cancelledRate;
+}
+
+@visibleForTesting
+List<String> collectRiskWarningsForListingInput(
+  ListingInput input, {
+  DateTime? now,
+}) {
+  final warnings = <String>[];
+  final base = now ?? DateTime.now();
+  final pickupWindow = input.pickupEndAt.difference(input.pickupStartAt);
+  final untilStart = input.pickupStartAt.difference(base);
+  final expireAfterStart = input.expiresAt.difference(input.pickupStartAt);
+
+  if (pickupWindow < const Duration(minutes: 45)) {
+    warnings.add(
+      'Pickup window is short (${pickupWindow.inMinutes} min). Recommend at least 45 min.',
+    );
+  }
+  if (untilStart < const Duration(minutes: 20)) {
+    warnings.add(
+      'Pickup start is very soon (${untilStart.inMinutes} min). Recipients may not arrive in time.',
+    );
+  }
+  if (expireAfterStart < const Duration(minutes: 60)) {
+    warnings.add(
+      'Expiry is close to pickup start (${expireAfterStart.inMinutes} min). Consider extending expiry.',
+    );
+  }
+
+  return warnings;
+}
+
+@visibleForTesting
+String resolveTemplateIdForListingMap(Map<String, dynamic> map) {
+  final rawTemplateId = (map['templateId'] as String?)?.trim();
+  if (rawTemplateId != null &&
+      rawTemplateId.isNotEmpty &&
+      _quickTemplates.any((template) => template.id == rawTemplateId)) {
+    return rawTemplateId;
+  }
+
+  final itemType = (map['itemType'] as String? ?? '').trim().toLowerCase();
+  final description = (map['description'] as String? ?? '')
+      .trim()
+      .toLowerCase();
+  for (final template in _quickTemplates.where(
+    (template) => template.id != _defaultTemplateId,
+  )) {
+    if (itemType == template.itemType.trim().toLowerCase() &&
+        description == template.description.trim().toLowerCase()) {
+      return template.id;
+    }
+  }
+  return _defaultTemplateId;
+}
+
+@visibleForTesting
+List<TemplatePerformanceSummary> computeTemplatePerformance({
+  required Map<String, String> listingToTemplate,
+  required Iterable<Map<String, dynamic>> reservations,
+}) {
+  final total = <String, int>{};
+  final completed = <String, int>{};
+  final cancelled = <String, int>{};
+
+  for (final data in reservations) {
+    final listingId = (data['listingId'] as String?) ?? '';
+    final templateId = listingToTemplate[listingId];
+    if (templateId == null || templateId.isEmpty) {
+      continue;
+    }
+    final status = (data['status'] as String?) ?? 'reserved';
+    total[templateId] = (total[templateId] ?? 0) + 1;
+    if (status == 'completed') {
+      completed[templateId] = (completed[templateId] ?? 0) + 1;
+    }
+    if (status == 'cancelled') {
+      cancelled[templateId] = (cancelled[templateId] ?? 0) + 1;
+    }
+  }
+
+  final list =
+      _quickTemplates
+          .map((template) {
+            final totalReservations = total[template.id] ?? 0;
+            final completedReservations = completed[template.id] ?? 0;
+            final cancelledReservations = cancelled[template.id] ?? 0;
+            final completedRate = totalReservations == 0
+                ? 0.0
+                : completedReservations / totalReservations.toDouble();
+            final cancelledRate = totalReservations == 0
+                ? 0.0
+                : cancelledReservations / totalReservations.toDouble();
+            return TemplatePerformanceSummary(
+              templateId: template.id,
+              totalReservations: totalReservations,
+              completedReservations: completedReservations,
+              cancelledReservations: cancelledReservations,
+              completedRate: completedRate,
+              cancelledRate: cancelledRate,
+            );
+          })
+          .where((item) => item.totalReservations > 0)
+          .toList()
+        ..sort((a, b) {
+          final completedCmp = b.completedRate.compareTo(a.completedRate);
+          if (completedCmp != 0) {
+            return completedCmp;
+          }
+          final cancelledCmp = a.cancelledRate.compareTo(b.cancelledRate);
+          if (cancelledCmp != 0) {
+            return cancelledCmp;
+          }
+          return b.totalReservations.compareTo(a.totalReservations);
+        });
+  return list;
+}
+
 class EnterpriseListingPage extends StatefulWidget {
   const EnterpriseListingPage({super.key, this.listingId, this.token});
 
@@ -346,29 +480,7 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
   }
 
   List<String> _collectRiskWarnings(ListingInput input) {
-    final warnings = <String>[];
-    final now = DateTime.now();
-    final pickupWindow = input.pickupEndAt.difference(input.pickupStartAt);
-    final untilStart = input.pickupStartAt.difference(now);
-    final expireAfterStart = input.expiresAt.difference(input.pickupStartAt);
-
-    if (pickupWindow < const Duration(minutes: 45)) {
-      warnings.add(
-        'Pickup window is short (${pickupWindow.inMinutes} min). Recommend at least 45 min.',
-      );
-    }
-    if (untilStart < const Duration(minutes: 20)) {
-      warnings.add(
-        'Pickup start is very soon (${untilStart.inMinutes} min). Recipients may not arrive in time.',
-      );
-    }
-    if (expireAfterStart < const Duration(minutes: 60)) {
-      warnings.add(
-        'Expiry is close to pickup start (${expireAfterStart.inMinutes} min). Consider extending expiry.',
-      );
-    }
-
-    return warnings;
+    return collectRiskWarningsForListingInput(input);
   }
 
   Future<bool> _confirmRiskWarnings(List<String> warnings) async {
@@ -394,26 +506,7 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
   }
 
   String _resolveTemplateIdFromListingMap(Map<String, dynamic> map) {
-    final rawTemplateId = (map['templateId'] as String?)?.trim();
-    if (rawTemplateId != null &&
-        rawTemplateId.isNotEmpty &&
-        _quickTemplates.any((template) => template.id == rawTemplateId)) {
-      return rawTemplateId;
-    }
-
-    final itemType = (map['itemType'] as String? ?? '').trim().toLowerCase();
-    final description = (map['description'] as String? ?? '')
-        .trim()
-        .toLowerCase();
-    for (final template in _quickTemplates.where(
-      (template) => template.id != _defaultTemplateId,
-    )) {
-      if (itemType == template.itemType.trim().toLowerCase() &&
-          description == template.description.trim().toLowerCase()) {
-        return template.id;
-      }
-    }
-    return _defaultTemplateId;
+    return resolveTemplateIdForListingMap(map);
   }
 
   Future<List<_TemplatePerformance>> _loadTemplatePerformance() async {
@@ -439,65 +532,29 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
         );
       }
 
-      final total = <String, int>{};
-      final completed = <String, int>{};
-      final cancelled = <String, int>{};
-
-      for (final doc in reservationsSnap.docs) {
-        final data = doc.data();
-        final listingId = (data['listingId'] as String?) ?? '';
-        final templateId = listingToTemplate[listingId];
-        if (templateId == null || templateId.isEmpty) {
-          continue;
-        }
-        final status = (data['status'] as String?) ?? 'reserved';
-        total[templateId] = (total[templateId] ?? 0) + 1;
-        if (status == 'completed') {
-          completed[templateId] = (completed[templateId] ?? 0) + 1;
-        }
-        if (status == 'cancelled') {
-          cancelled[templateId] = (cancelled[templateId] ?? 0) + 1;
-        }
-      }
-
-      final list =
-          _quickTemplates
-              .map((template) {
-                final totalReservations = total[template.id] ?? 0;
-                final completedReservations = completed[template.id] ?? 0;
-                final cancelledReservations = cancelled[template.id] ?? 0;
-                final completedRate = totalReservations == 0
-                    ? 0.0
-                    : completedReservations / totalReservations.toDouble();
-                final cancelledRate = totalReservations == 0
-                    ? 0.0
-                    : cancelledReservations / totalReservations.toDouble();
-                return _TemplatePerformance(
-                  templateId: template.id,
-                  templateName: AppScope.of(context).localeController.isZhTw
-                      ? template.nameZh
-                      : template.nameEn,
-                  totalReservations: totalReservations,
-                  completedReservations: completedReservations,
-                  cancelledReservations: cancelledReservations,
-                  completedRate: completedRate,
-                  cancelledRate: cancelledRate,
-                );
-              })
-              .where((item) => item.totalReservations > 0)
-              .toList()
-            ..sort((a, b) {
-              final completedCmp = b.completedRate.compareTo(a.completedRate);
-              if (completedCmp != 0) {
-                return completedCmp;
-              }
-              final cancelledCmp = a.cancelledRate.compareTo(b.cancelledRate);
-              if (cancelledCmp != 0) {
-                return cancelledCmp;
-              }
-              return b.totalReservations.compareTo(a.totalReservations);
-            });
-      return list;
+      final computed = computeTemplatePerformance(
+        listingToTemplate: listingToTemplate,
+        reservations: reservationsSnap.docs.map((doc) => doc.data()),
+      );
+      return computed
+          .map((item) {
+            final template = _quickTemplates.firstWhere(
+              (t) => t.id == item.templateId,
+              orElse: () => _quickTemplates.first,
+            );
+            return _TemplatePerformance(
+              templateId: item.templateId,
+              templateName: AppScope.of(context).localeController.isZhTw
+                  ? template.nameZh
+                  : template.nameEn,
+              totalReservations: item.totalReservations,
+              completedReservations: item.completedReservations,
+              cancelledReservations: item.cancelledReservations,
+              completedRate: item.completedRate,
+              cancelledRate: item.cancelledRate,
+            );
+          })
+          .toList();
     } catch (_) {
       return const <_TemplatePerformance>[];
     }
@@ -880,6 +937,13 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        Text(
+                          AppScope.of(context).localeController.isZhTw
+                              ? '1) 場館與交付資訊'
+                              : '1) Venue & handoff info',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                        const SizedBox(height: 8),
                         DropdownButtonFormField<String>(
                           initialValue: _selectedVenueId,
                           items: venues
@@ -942,6 +1006,31 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
                           ),
                         ),
                         const SizedBox(height: 12),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFF7E8),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: const Color(0xFFE5C27A),
+                            ),
+                          ),
+                          child: Text(
+                            AppScope.of(context).localeController.isZhTw
+                                ? '提醒：僅限公開展場/服務台交付，請勿要求私下移動地點。'
+                                : 'Safety: use only public venue/service-desk handoff. Do not request private location changes.',
+                            style: const TextStyle(color: Color(0xFF7A4A00)),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          AppScope.of(context).localeController.isZhTw
+                              ? '2) 品項資訊'
+                              : '2) Item details',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                        const SizedBox(height: 8),
                         TextFormField(
                           controller: _itemTypeController,
                           decoration: const InputDecoration(
@@ -991,6 +1080,13 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
                           ),
                         ),
                         const SizedBox(height: 12),
+                        Text(
+                          AppScope.of(context).localeController.isZhTw
+                              ? '3) 時段設定'
+                              : '3) Time windows',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                        const SizedBox(height: 8),
                         ListTile(
                           contentPadding: EdgeInsets.zero,
                           title: const Text('Pickup start'),

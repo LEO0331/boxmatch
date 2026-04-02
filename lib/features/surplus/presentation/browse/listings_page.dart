@@ -71,7 +71,11 @@ class _ListingsPageState extends State<ListingsPage> {
     );
   }
 
-  Widget _buildFilterCard(BuildContext context, AppStrings s) {
+  Widget _buildFilterCard(
+    BuildContext context,
+    AppStrings s, {
+    required int favoriteCount,
+  }) {
     final isZh = AppScope.of(context).localeController.isZhTw;
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 8),
@@ -133,6 +137,29 @@ class _ListingsPageState extends State<ListingsPage> {
                     fontWeight: FontWeight.w600,
                   ),
                   label: Text(isZh ? '僅收藏場館' : 'Favorites only'),
+                ),
+                if (_favoritesOnly)
+                  ActionChip(
+                    avatar: const Icon(Icons.filter_alt_off_outlined, size: 16),
+                    label: Text(isZh ? '清除篩選' : 'Clear filter'),
+                    onPressed: () => _setFavoritesOnly(false),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Text(
+                  isZh
+                      ? '收藏場館：$favoriteCount'
+                      : 'Favorite venues: $favoriteCount',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: () => context.go('/map'),
+                  icon: const Icon(Icons.map_outlined, size: 16),
+                  label: Text(isZh ? '地圖' : 'Map'),
                 ),
               ],
             ),
@@ -232,7 +259,11 @@ class _ListingsPageState extends State<ListingsPage> {
                     return Column(
                       children: [
                         if (!dependencies.usingFirebase) _buildModeNotice(s),
-                        _buildFilterCard(context, s),
+                        _buildFilterCard(
+                          context,
+                          s,
+                          favoriteCount: favoriteVenueIds.length,
+                        ),
                         Expanded(
                           child: ListView(
                             padding: const EdgeInsets.all(24),
@@ -244,6 +275,16 @@ class _ListingsPageState extends State<ListingsPage> {
                                 s.noActiveListings,
                                 textAlign: TextAlign.center,
                               ),
+                              const SizedBox(height: 12),
+                              FilledButton.tonalIcon(
+                                onPressed: () => context.go('/map'),
+                                icon: const Icon(Icons.map_outlined),
+                                label: Text(
+                                  AppScope.of(context).localeController.isZhTw
+                                      ? '去場館地圖看看'
+                                      : 'Open venue map',
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -254,7 +295,11 @@ class _ListingsPageState extends State<ListingsPage> {
                   return Column(
                     children: [
                       if (!dependencies.usingFirebase) _buildModeNotice(s),
-                      _buildFilterCard(context, s),
+                      _buildFilterCard(
+                        context,
+                        s,
+                        favoriteCount: favoriteVenueIds.length,
+                      ),
                       Expanded(
                         child: ListView.builder(
                           itemCount: listings.length,

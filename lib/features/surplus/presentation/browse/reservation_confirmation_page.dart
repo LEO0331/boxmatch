@@ -168,10 +168,30 @@ class ReservationConfirmationPage extends StatelessWidget {
                               const SizedBox(height: 8),
                               Text(s.showPickupCodeHelp),
                               const SizedBox(height: 12),
-                              OutlinedButton.icon(
-                                onPressed: () => context.go('/my-reservations'),
-                                icon: const Icon(Icons.receipt_long_outlined),
-                                label: Text(s.myReservationsCta),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  OutlinedButton.icon(
+                                    onPressed: () =>
+                                        context.go('/my-reservations'),
+                                    icon: const Icon(
+                                      Icons.receipt_long_outlined,
+                                    ),
+                                    label: Text(s.myReservationsCta),
+                                  ),
+                                  OutlinedButton.icon(
+                                    onPressed: () => context.go('/'),
+                                    icon: const Icon(Icons.home_outlined),
+                                    label: Text(
+                                      AppScope.of(context)
+                                              .localeController
+                                              .isZhTw
+                                          ? '回清單'
+                                          : 'Back to listings',
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),

@@ -90,6 +90,19 @@ class _MyReservationsPageState extends State<MyReservationsPage> {
     }
   }
 
+  Color _statusColor(ReservationStatus status) {
+    switch (status) {
+      case ReservationStatus.reserved:
+        return const Color(0xFF2D6A4F);
+      case ReservationStatus.completed:
+        return const Color(0xFF1D8348);
+      case ReservationStatus.expired:
+        return const Color(0xFF8E7D63);
+      case ReservationStatus.cancelled:
+        return const Color(0xFF9E9E9E);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
@@ -127,7 +140,29 @@ class _MyReservationsPageState extends State<MyReservationsPage> {
 
           final items = snapshot.data ?? const <_ReservationWithListing>[];
           if (items.isEmpty) {
-            return Center(child: Text(s.noMyReservations));
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.receipt_long_outlined, size: 44),
+                    const SizedBox(height: 10),
+                    Text(s.noMyReservations),
+                    const SizedBox(height: 12),
+                    FilledButton.tonalIcon(
+                      onPressed: () => context.go('/'),
+                      icon: const Icon(Icons.search_outlined),
+                      label: Text(
+                        AppScope.of(context).localeController.isZhTw
+                            ? '去找可領取餐點'
+                            : 'Browse listings',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
           }
 
           final aliasFrequency = <String, int>{};
@@ -184,8 +219,32 @@ class _MyReservationsPageState extends State<MyReservationsPage> {
                 });
                 return Card(
                   child: ListTile(
-                    title: Text(
-                      '${listing?.itemType ?? 'Item'} · $statusLabel',
+                    title: Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(listing?.itemType ?? 'Item'),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _statusColor(
+                              reservation.status,
+                            ).withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            statusLabel,
+                            style: TextStyle(
+                              color: _statusColor(reservation.status),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                     subtitle: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
