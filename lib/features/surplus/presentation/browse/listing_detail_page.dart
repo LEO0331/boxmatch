@@ -6,6 +6,7 @@ import '../../../../core/i18n/app_strings.dart';
 import '../../../../core/i18n/language_menu_button.dart';
 import '../../../../core/widgets/load_error_view.dart';
 import '../../../../core/utils/date_time_formatters.dart';
+import 'reservation_confirmation_page.dart';
 import '../../../surplus/domain/listing.dart';
 import '../../../surplus/domain/surplus_exceptions.dart';
 import '../../../surplus/domain/venue.dart';
@@ -54,7 +55,22 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
       if (!mounted) {
         return;
       }
-      context.go('/listing/${listing.id}/reservation/${reservation.id}');
+      final target = '/listing/${listing.id}/reservation/${reservation.id}';
+      try {
+        context.go(target);
+      } catch (_) {
+        if (!mounted) {
+          return;
+        }
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => ReservationConfirmationPage(
+              listingId: listing.id,
+              reservationId: reservation.id,
+            ),
+          ),
+        );
+      }
     } on SurplusException catch (error) {
       if (!mounted) {
         return;
