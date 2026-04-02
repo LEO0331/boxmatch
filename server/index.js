@@ -397,6 +397,7 @@ function validateAndBuildUpdate(body) {
     'pickupEndAt',
     'expiresAt',
     'displayNameOptional',
+    'templateId',
     'visibility'
   ];
 
@@ -425,6 +426,12 @@ function validateAndBuildUpdate(body) {
     payload.displayNameOptional =
       typeof body.displayNameOptional === 'string' && body.displayNameOptional.trim()
         ? body.displayNameOptional.trim()
+        : null;
+  }
+  if (Object.hasOwn(body, 'templateId')) {
+    payload.templateId =
+      typeof body.templateId === 'string' && body.templateId.trim()
+        ? body.templateId.trim()
         : null;
   }
   if (typeof body.visibility === 'string' && body.visibility.trim()) {
@@ -1016,6 +1023,7 @@ app.post('/enterprise/listings/create', async (req, res) => {
       pickupEndAt: payload.pickupEndAt,
       expiresAt: payload.expiresAt,
       displayNameOptional: payload.displayNameOptional ?? null,
+      templateId: payload.templateId ?? null,
       visibility: payload.visibility,
       status: 'active',
       enterpriseVerified,
