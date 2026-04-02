@@ -18,12 +18,15 @@ class FirestoreSurplusRepository implements SurplusRepository {
     this._firestore, {
     required String apiBaseUrl,
     http.Client? httpClient,
+    Future<String?> Function()? idTokenProvider,
   }) : _apiBaseUrl = apiBaseUrl,
-       _http = httpClient ?? http.Client();
+       _http = httpClient ?? http.Client(),
+       _idTokenProvider = idTokenProvider;
 
   final FirebaseFirestore _firestore;
   final String _apiBaseUrl;
   final http.Client _http;
+  final Future<String?> Function()? _idTokenProvider;
   final Map<String, Reservation> _reservationCache = {};
   static const Duration _defaultTimeout = Duration(seconds: 8);
   static const Set<int> _retryableStatusCodes = {408, 429, 500, 502, 503, 504};
@@ -270,12 +273,17 @@ class FirestoreSurplusRepository implements SurplusRepository {
         'Please accept the disclaimer before reserving.',
       );
     }
-    final response = await _postJson('/recipient/listings/$listingId/reserve', {
-      'claimerUid': claimerUid,
-      'qty': qty,
-      'disclaimerAccepted': disclaimerAccepted,
-      'idempotencyKey': 'reserve_${randomId(length: 24)}',
-    }, maxAttempts: 3);
+    final response = await _postJson(
+      '/recipient/listings/$listingId/reserve',
+      {
+        'claimerUid': claimerUid,
+        'qty': qty,
+        'disclaimerAccepted': disclaimerAccepted,
+        'idempotencyKey': 'reserve_${randomId(length: 24)}',
+      },
+      maxAttempts: 3,
+      includeAuth: true,
+    );
     final raw = response['reservation'];
     if (raw is! Map) {
       throw const ValidationException(
@@ -296,9 +304,12 @@ class FirestoreSurplusRepository implements SurplusRepository {
   Future<List<Reservation>> listRecipientReservations({
     required String claimerUid,
   }) async {
-    final response = await _postJson('/recipient/reservations/list', {
-      'claimerUid': claimerUid,
-    }, maxAttempts: 3);
+    final response = await _postJson(
+      '/recipient/reservations/list',
+      {'claimerUid': claimerUid},
+      maxAttempts: 3,
+      includeAuth: true,
+    );
     final raw = response['reservations'];
     if (raw is! List) {
       return const <Reservation>[];
@@ -318,9 +329,12 @@ class FirestoreSurplusRepository implements SurplusRepository {
     required String reservationId,
     required String claimerUid,
   }) async {
-    await _postJson('/recipient/reservations/$reservationId/cancel', {
-      'claimerUid': claimerUid,
-    }, maxAttempts: 3);
+    await _postJson(
+      '/recipient/reservations/$reservationId/cancel',
+      {'claimerUid': claimerUid},
+      maxAttempts: 3,
+      includeAuth: true,
+    );
     final cached = _reservationCache[reservationId];
     if (cached != null && cached.status == ReservationStatus.reserved) {
       _reservationCache[reservationId] = cached.copyWith(
@@ -379,10 +393,12 @@ class FirestoreSurplusRepository implements SurplusRepository {
     required String claimerUid,
     required String reason,
   }) async {
-    await _postJson('/recipient/listings/$listingId/report-abuse', {
-      'claimerUid': claimerUid,
-      'reason': reason,
-    }, maxAttempts: 3);
+    await _postJson(
+      '/recipient/listings/$listingId/report-abuse',
+      {'claimerUid': claimerUid, 'reason': reason},
+      maxAttempts: 3,
+      includeAuth: true,
+    );
   }
 
   void _validateInput(ListingInput input) {
@@ -428,6 +444,7 @@ class FirestoreSurplusRepository implements SurplusRepository {
     String path,
     Map<String, dynamic> payload, {
     int maxAttempts = 1,
+    bool includeAuth = false,
   }) async {
     final uri = Uri.parse('${_apiBaseUrl.replaceAll(RegExp(r'/+$'), '')}$path');
     if (maxAttempts < 1) {
@@ -439,7 +456,7 @@ class FirestoreSurplusRepository implements SurplusRepository {
         final response = await _http
             .post(
               uri,
-              headers: {'content-type': 'application/json'},
+              headers: await _buildHeaders(includeAuth: includeAuth),
               body: jsonEncode(payload),
             )
             .timeout(_defaultTimeout);
@@ -501,6 +518,24 @@ class FirestoreSurplusRepository implements SurplusRepository {
     }
 
     throw const ValidationException('Request failed.');
+  }
+
+  Future<Map<String, String>> _buildHeaders({required bool includeAuth}) async {
+    final headers = <String, String>{'content-type': 'application/json'};
+    final tokenProvider = _idTokenProvider;
+    if (!includeAuth || tokenProvider == null) {
+      return headers;
+    }
+
+    try {
+      final token = await tokenProvider.call();
+      if (token != null && token.isNotEmpty) {
+        headers['authorization'] = 'Bearer $token';
+      }
+    } catch (_) {
+      // Token acquisition failures should not block legacy compatibility mode.
+    }
+    return headers;
   }
 
   Duration _retryDelay(int attempt) {

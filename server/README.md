@@ -50,8 +50,16 @@ Base URL (after deploy on Render):
 
 Business rule:
 
-- recipient daily reservation cap is enforced by `claimerUid` + UTC day.
+- recipient daily reservation cap is enforced by resolved recipient uid + UTC day.
 - when cap is hit, API returns `429` with code `RECIPIENT_DAILY_LIMIT_REACHED`.
+
+Auth compatibility policy (Phase 1):
+
+- recipient API accepts `Authorization: Bearer <Firebase ID token>` and legacy `claimerUid`.
+- server always prefers token uid when token is present.
+- if both token uid and `claimerUid` exist but mismatch, API returns `400` with `AUTH_UID_MISMATCH`.
+- if token is absent, legacy mode is used (until deprecation date).
+- legacy mode uses stricter daily cap (`LEGACY_RECIPIENT_DAILY_RESERVATION_LIMIT`, default `2`).
 
 ### Create listing
 
@@ -130,10 +138,21 @@ Exports are written to `../Documents/boxmatch/reports`.
 - `ENABLE_KPI_EVENT_LOGS` (optional; set `true` only when raw event audit is needed)
 - `UNVERIFIED_DAILY_LIMIT` (optional; default `5`)
 - `RECIPIENT_DAILY_RESERVATION_LIMIT` (optional; default `5`)
+- `LEGACY_RECIPIENT_DAILY_RESERVATION_LIMIT` (optional; default `2`)
+- `REQUIRE_ID_TOKEN` (optional; default `false`; when `true`, recipient API rejects requests without bearer token)
 
 ## GitHub Actions secret needed
 
 - `RENDER_DEPLOY_HOOK_URL` (from Render service settings)
+
+## Recipient Auth Migration Timeline
+
+- Phase 1 compatibility: `2026-04-02` to `2027-04-01`
+  - token and legacy body uid are both accepted.
+  - logs include `recipientAuthMode=token|legacy`.
+- Phase 2 enforcement starts: `2027-04-01`
+  - set `REQUIRE_ID_TOKEN=true`.
+  - remove legacy `claimerUid` handling in client payloads.
 
 ## Manual Review SOP (Verified Enterprise)
 

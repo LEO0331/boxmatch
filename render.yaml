@@ -19,3 +19,7 @@ services:
         value: "10"
       - key: RECIPIENT_DAILY_RESERVATION_LIMIT
         value: "5"
+      - key: LEGACY_RECIPIENT_DAILY_RESERVATION_LIMIT
+        value: "2"
+      - key: REQUIRE_ID_TOKEN
+        value: "false"

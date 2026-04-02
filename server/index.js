@@ -44,6 +44,11 @@ const RECIPIENT_DAILY_RESERVATION_LIMIT = Math.max(
   1,
   Number(process.env.RECIPIENT_DAILY_RESERVATION_LIMIT || 5)
 );
+const LEGACY_RECIPIENT_DAILY_RESERVATION_LIMIT = Math.max(
+  1,
+  Number(process.env.LEGACY_RECIPIENT_DAILY_RESERVATION_LIMIT || 2)
+);
+const REQUIRE_ID_TOKEN = String(process.env.REQUIRE_ID_TOKEN || 'false').toLowerCase() === 'true';
 
 function sha256(value) {
   return crypto.createHash('sha256').update(value, 'utf8').digest('hex');
@@ -219,11 +224,73 @@ app.use((req, res, next) => {
       path: req.originalUrl,
       status: res.statusCode,
       latencyMs,
-      reasonCode
+      reasonCode,
+      recipientAuthMode: req.recipientAuthMode || null
     });
   });
 
   next();
+});
+
+app.use('/recipient', async (req, res, next) => {
+  const legacyUid = String(req.body?.claimerUid || '').trim();
+  const bearerToken = parseBearerToken(req);
+
+  if (!bearerToken) {
+    if (REQUIRE_ID_TOKEN) {
+      return errorResponse(
+        res,
+        401,
+        'ID token is required.',
+        'AUTH_ID_TOKEN_REQUIRED'
+      );
+    }
+    if (!legacyUid) {
+      return errorResponse(
+        res,
+        400,
+        'claimerUid is required in legacy mode.',
+        'VALIDATION_CLAIMER_UID_REQUIRED'
+      );
+    }
+    req.recipientUid = legacyUid;
+    req.recipientAuthMode = 'legacy';
+    return next();
+  }
+
+  try {
+    const decoded = await admin.auth().verifyIdToken(bearerToken);
+    const authUid = String(decoded?.uid || '').trim();
+    if (!authUid) {
+      return errorResponse(
+        res,
+        401,
+        'Invalid ID token.',
+        'AUTH_ID_TOKEN_INVALID'
+      );
+    }
+    if (legacyUid && legacyUid !== authUid) {
+      return errorResponse(
+        res,
+        400,
+        'claimerUid does not match ID token uid.',
+        'AUTH_UID_MISMATCH'
+      );
+    }
+    req.recipientUid = authUid;
+    req.recipientAuthMode = 'token';
+    return next();
+  } catch (error) {
+    logServerError('recipient.auth.verify_id_token.failed', req, error, {
+      reasonCode: 'AUTH_ID_TOKEN_INVALID'
+    });
+    return errorResponse(
+      res,
+      401,
+      'Invalid or expired ID token.',
+      'AUTH_ID_TOKEN_INVALID'
+    );
+  }
 });
 
 function toIso(value) {
@@ -443,6 +510,25 @@ function randomDigits(length = 4) {
   return output;
 }
 
+function parseBearerToken(req) {
+  const authHeader = String(req.headers?.authorization || '').trim();
+  if (!authHeader.toLowerCase().startsWith('bearer ')) {
+    return null;
+  }
+  const token = authHeader.slice(7).trim();
+  return token || null;
+}
+
+function resolveRecipientDailyLimit(authMode) {
+  if (authMode === 'legacy') {
+    return Math.min(
+      RECIPIENT_DAILY_RESERVATION_LIMIT,
+      LEGACY_RECIPIENT_DAILY_RESERVATION_LIMIT
+    );
+  }
+  return RECIPIENT_DAILY_RESERVATION_LIMIT;
+}
+
 function errorResponse(res, status, message, code, details) {
   return res.status(status).json({
     ok: false,
@@ -495,19 +581,13 @@ app.get('/health', async (_req, res) => {
 app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
   try {
     const listingId = req.params.listingId;
-    const claimerUid = String(req.body?.claimerUid || '').trim();
+    const claimerUid = String(req.recipientUid || '').trim();
+    const recipientAuthMode = String(req.recipientAuthMode || 'legacy');
     const qty = Number(req.body?.qty || 0);
     const disclaimerAccepted = req.body?.disclaimerAccepted === true;
     const idempotencyKey = String(req.body?.idempotencyKey || '').trim();
+    const recipientDailyLimit = resolveRecipientDailyLimit(recipientAuthMode);
 
-    if (!claimerUid) {
-      return errorResponse(
-        res,
-        400,
-        'claimerUid is required.',
-        'VALIDATION_CLAIMER_UID_REQUIRED'
-      );
-    }
     if (!Number.isInteger(qty) || qty <= 0) {
       return errorResponse(
         res,
@@ -566,9 +646,9 @@ app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
           .where('createdAt', '>=', from)
           .where('createdAt', '<', to)
       );
-      if (recipientDailySnap.size >= RECIPIENT_DAILY_RESERVATION_LIMIT) {
+      if (recipientDailySnap.size >= recipientDailyLimit) {
         throw new Error(
-          `Recipient daily reservation limit reached (${RECIPIENT_DAILY_RESERVATION_LIMIT}).`
+          `Recipient daily reservation limit reached (${recipientDailyLimit}).`
         );
       }
 
@@ -650,7 +730,8 @@ app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
       logEvent('info', 'recipient.reserve.idempotent_replay', {
         requestId: req.requestId,
         listingId,
-        claimerUid
+        claimerUid,
+        recipientAuthMode
       });
     } else {
       try {
@@ -684,7 +765,7 @@ app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
       'Listing not found.',
       'This listing is no longer available.',
       'Idempotency key conflict.',
-      `Recipient daily reservation limit reached (${RECIPIENT_DAILY_RESERVATION_LIMIT}).`
+      `Recipient daily reservation limit reached (${recipientDailyLimit}).`
     ].includes(message)
       ? message.startsWith('Recipient daily reservation limit reached')
         ? 429
@@ -698,7 +779,8 @@ app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
       ? 'RESERVE_FAILED_BUSINESS_RULE'
       : 'RESERVE_FAILED_INTERNAL';
     logServerError('recipient.reserve.failed', req, error, {
-      reasonCode
+      reasonCode,
+      recipientAuthMode
     });
     return errorResponse(res, status, message, reasonCode);
   }
@@ -707,18 +789,10 @@ app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
 app.post('/recipient/listings/:listingId/report-abuse', async (req, res) => {
   try {
     const listingId = req.params.listingId;
-    const claimerUid = String(req.body?.claimerUid || '').trim();
+    const claimerUid = String(req.recipientUid || '').trim();
     const reason = String(req.body?.reason || '').trim();
     const reservationId = String(req.body?.reservationId || '').trim();
 
-    if (!claimerUid) {
-      return errorResponse(
-        res,
-        400,
-        'claimerUid is required.',
-        'VALIDATION_CLAIMER_UID_REQUIRED'
-      );
-    }
     if (!reason) {
       return errorResponse(
         res,
@@ -764,15 +838,7 @@ app.post('/recipient/listings/:listingId/report-abuse', async (req, res) => {
 
 app.post('/recipient/reservations/list', async (req, res) => {
   try {
-    const claimerUid = String(req.body?.claimerUid || '').trim();
-    if (!claimerUid) {
-      return errorResponse(
-        res,
-        400,
-        'claimerUid is required.',
-        'VALIDATION_CLAIMER_UID_REQUIRED'
-      );
-    }
+    const claimerUid = String(req.recipientUid || '').trim();
 
     const snap = await db
       .collection(RESERVATIONS)
@@ -819,15 +885,7 @@ app.post('/recipient/reservations/list', async (req, res) => {
 app.post('/recipient/reservations/:reservationId/cancel', async (req, res) => {
   try {
     const reservationId = req.params.reservationId;
-    const claimerUid = String(req.body?.claimerUid || '').trim();
-    if (!claimerUid) {
-      return errorResponse(
-        res,
-        400,
-        'claimerUid is required.',
-        'VALIDATION_CLAIMER_UID_REQUIRED'
-      );
-    }
+    const claimerUid = String(req.recipientUid || '').trim();
 
     const reservationRef = db.collection(RESERVATIONS).doc(reservationId);
     const result = await db.runTransaction(async (tx) => {
