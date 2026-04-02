@@ -1,4 +1,7 @@
 // coverage:ignore-file
+import 'dart:convert';
+import 'dart:developer' as developer;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
@@ -60,6 +63,19 @@ class _VenuesMapPageState extends State<VenuesMapPage> {
   DateTime? _lastErrorAt;
   DateTime? _lastSwitchAt;
 
+  void _logHandledError(String source, Object error) {
+    final line = jsonEncode({
+      'tag': 'BOXMATCH_ERROR',
+      'source': source,
+      'fatal': false,
+      'errorType': error.runtimeType.toString(),
+      'message': error.toString(),
+      'ts': DateTime.now().toIso8601String(),
+    });
+    debugPrint(line);
+    developer.log(line, name: 'BOXMATCH_ERROR');
+  }
+
   void _onTileError() {
     final now = DateTime.now();
 
@@ -104,6 +120,7 @@ class _VenuesMapPageState extends State<VenuesMapPage> {
             stream: repository.watchVenues(),
             builder: (context, venuesSnapshot) {
               if (venuesSnapshot.hasError) {
+                _logHandledError('map.venues_stream', venuesSnapshot.error!);
                 return LoadErrorView(
                   title: s.genericLoadErrorTitle,
                   message: s.genericLoadErrorBody,
@@ -118,6 +135,10 @@ class _VenuesMapPageState extends State<VenuesMapPage> {
                 stream: repository.watchActiveListings(),
                 builder: (context, listingSnapshot) {
                   if (listingSnapshot.hasError) {
+                    _logHandledError(
+                      'map.active_listings_stream',
+                      listingSnapshot.error!,
+                    );
                     return LoadErrorView(
                       title: s.genericLoadErrorTitle,
                       message: s.genericLoadErrorBody,
