@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../app/app_scope.dart';
 import '../../../../core/i18n/app_strings.dart';
 import '../../../../core/i18n/language_menu_button.dart';
+import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/load_error_view.dart';
 import '../../../../core/utils/date_time_formatters.dart';
 import '../../../surplus/domain/listing.dart';
@@ -135,215 +136,239 @@ class ReservationConfirmationPage extends StatelessWidget {
         title: Text(s.reservationConfirmed),
         actions: const [LanguageMenuButton()],
       ),
-      body: StreamBuilder<Reservation?>(
-        stream: repository.watchReservation(reservationId),
-        builder: (context, reservationSnapshot) {
-          if (reservationSnapshot.hasError) {
-            return LoadErrorView(
-              title: s.genericLoadErrorTitle,
-              message: s.genericLoadErrorBody,
-              retryLabel: s.retry,
-              onRetry: () {},
-            );
-          }
-
-          final reservation = reservationSnapshot.data;
-          if (reservation == null) {
-            if (reservationSnapshot.connectionState ==
-                ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
+      body: _desktopFrame(
+        context,
+        StreamBuilder<Reservation?>(
+          stream: repository.watchReservation(reservationId),
+          builder: (context, reservationSnapshot) {
+            if (reservationSnapshot.hasError) {
+              return LoadErrorView(
+                title: s.genericLoadErrorTitle,
+                message: s.genericLoadErrorBody,
+                retryLabel: s.retry,
+                onRetry: () {},
+              );
             }
-            return Center(child: Text(s.reservationNotFound));
-          }
 
-          return StreamBuilder<Listing?>(
-            stream: repository.watchListing(listingId),
-            builder: (context, listingSnapshot) {
-              if (listingSnapshot.hasError) {
-                return LoadErrorView(
-                  title: s.genericLoadErrorTitle,
-                  message: s.genericLoadErrorBody,
-                  retryLabel: s.retry,
-                  onRetry: () {},
-                );
+            final reservation = reservationSnapshot.data;
+            if (reservation == null) {
+              if (reservationSnapshot.connectionState ==
+                  ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
               }
+              return Center(child: Text(s.reservationNotFound));
+            }
 
-              final listing = listingSnapshot.data;
-              final badgeIds = (listing?.enterpriseBadges ?? const <String>[])
-                  .toSet()
-                  .toList();
+            return StreamBuilder<Listing?>(
+              stream: repository.watchListing(listingId),
+              builder: (context, listingSnapshot) {
+                if (listingSnapshot.hasError) {
+                  return LoadErrorView(
+                    title: s.genericLoadErrorTitle,
+                    message: s.genericLoadErrorBody,
+                    retryLabel: s.retry,
+                    onRetry: () {},
+                  );
+                }
 
-              return ListView(
-                    padding: const EdgeInsets.all(16),
-                    children: [
-                      if (identityService.isUsingLocalFallback)
-                        Card(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.surfaceContainerHigh,
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Text(s.offlineIdentityMode),
-                          ),
-                        ),
-                      if (identityService.isUsingLocalFallback)
-                        const SizedBox(height: 12),
+                final listing = listingSnapshot.data;
+                final badgeIds = (listing?.enterpriseBadges ?? const <String>[])
+                    .toSet()
+                    .toList();
+
+                return ListView(
+                  padding: const EdgeInsets.all(18),
+                  children: [
+                    if (identityService.isUsingLocalFallback)
                       Card(
                         color: Theme.of(
                           context,
-                        ).colorScheme.surfaceContainerLow,
+                        ).colorScheme.surfaceContainerHigh,
                         child: Padding(
                           padding: const EdgeInsets.all(12),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                s.privacyFaqTitle,
-                                style: Theme.of(context).textTheme.titleSmall,
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                s.privacyNotice,
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                s.faqNotice,
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                            ],
-                          ),
+                          child: Text(s.offlineIdentityMode),
                         ),
                       ),
+                    if (identityService.isUsingLocalFallback)
                       const SizedBox(height: 12),
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(20),
-                          child: Column(
-                            children: [
-                              Text(
-                                reservation.pickupCode,
-                                style: Theme.of(
-                                  context,
-                                ).textTheme.displayMedium,
-                              ),
-                              const SizedBox(height: 8),
-                              Text(s.showPickupCodeHelp),
-                              const SizedBox(height: 12),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: [
-                                  OutlinedButton.icon(
-                                    onPressed: () =>
-                                        context.go('/my-reservations'),
-                                    icon: const Icon(
-                                      Icons.receipt_long_outlined,
-                                    ),
-                                    label: Text(s.myReservationsCta),
-                                  ),
-                                  OutlinedButton.icon(
-                                    onPressed: () => context.go('/'),
-                                    icon: const Icon(Icons.home_outlined),
-                                    label: Text(
-                                      AppScope.of(context)
-                                              .localeController
-                                              .isZhTw
-                                          ? '回清單'
-                                          : 'Back to listings',
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
+                    Card(
+                      color: Theme.of(context).colorScheme.surfaceContainerLow,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              s.privacyFaqTitle,
+                              style: Theme.of(context).textTheme.titleSmall,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              s.privacyNotice,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              s.faqNotice,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      _ReservationStatusTimeline(reservation: reservation),
-                      const SizedBox(height: 12),
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Reservation status: ${s.statusLabel(_statusToLabel(reservation.status))}',
-                              ),
-                              const SizedBox(height: 8),
-                              if (listing != null) ...[
-                                Text('Item: ${listing.itemType}'),
-                                Text(
-                                  'Pickup point: ${listing.pickupPointText}',
+                    ),
+                    const SizedBox(height: 12),
+                    Card(
+                      color: BoxmatchColors.warmSurfaceAlt,
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          children: [
+                            Text(
+                              reservation.pickupCode,
+                              style: Theme.of(context).textTheme.displayMedium,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(s.showPickupCodeHelp),
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                FilledButton.icon(
+                                  onPressed: () =>
+                                      context.go('/my-reservations'),
+                                  icon: const Icon(Icons.receipt_long_outlined),
+                                  label: Text(s.myReservationsCta),
                                 ),
-                                if ((listing.displayNameOptional ?? '')
-                                    .trim()
-                                    .isNotEmpty)
-                                  Text(
-                                    'Enterprise: ${listing.displayNameOptional}',
-                                  ),
-                                if (badgeIds.isNotEmpty)
-                                  Padding(
-                                    padding: const EdgeInsets.only(
-                                      top: 6,
-                                      bottom: 4,
-                                    ),
-                                    child: Wrap(
-                                      spacing: 8,
-                                      runSpacing: 6,
-                                      children: badgeIds
-                                          .map((badgeId) {
-                                            final label =
-                                                s.enterpriseBadgeLabel(badgeId);
-                                            if (label == null) {
-                                              return null;
-                                            }
-                                            return Chip(
-                                              avatar: Icon(
-                                                _badgeIcon(badgeId),
-                                                size: 16,
-                                                color: const Color(0xFF2D6A4F),
-                                              ),
-                                              label: Text(label),
-                                            );
-                                          })
-                                          .whereType<Widget>()
-                                          .toList(),
-                                    ),
-                                  ),
-                                Text(
-                                  'Pickup window: ${formatDateTime(listing.pickupStartAt)} - ${formatDateTime(listing.pickupEndAt)}',
+                                OutlinedButton.icon(
+                                  onPressed: () => context.go('/'),
+                                  icon: const Icon(Icons.home_outlined),
+                                  label: Text(s.backToListings),
+                                ),
+                                OutlinedButton.icon(
+                                  onPressed: () => context.go('/map'),
+                                  icon: const Icon(Icons.map_outlined),
+                                  label: Text(s.openMap),
                                 ),
                               ],
-                              Text(
-                                'Reservation expires at: ${formatDateTime(reservation.expiresAt)}',
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                s.publicPickupOnlyNotice,
-                                style: const TextStyle(
-                                  color: Color(0xFF7A4A00),
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              OutlinedButton.icon(
-                                onPressed: () => _reportAbuse(context),
-                                icon: const Icon(
-                                  Icons.report_gmailerrorred_outlined,
-                                ),
-                                label: Text(s.reportSafetyConcern),
-                              ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
-                  );
-            },
-          );
-        },
+                    ),
+                    const SizedBox(height: 12),
+                    _ReservationStatusTimeline(reservation: reservation),
+                    const SizedBox(height: 12),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Reservation status: ${s.statusLabel(_statusToLabel(reservation.status))}',
+                            ),
+                            const SizedBox(height: 8),
+                            if (listing != null) ...[
+                              Text('Item: ${listing.itemType}'),
+                              Text('Pickup point: ${listing.pickupPointText}'),
+                              if ((listing.displayNameOptional ?? '')
+                                  .trim()
+                                  .isNotEmpty)
+                                Text(
+                                  'Enterprise: ${listing.displayNameOptional}',
+                                ),
+                              if (badgeIds.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(
+                                    top: 6,
+                                    bottom: 4,
+                                  ),
+                                  child: Wrap(
+                                    spacing: 8,
+                                    runSpacing: 6,
+                                    children: badgeIds
+                                        .map((badgeId) {
+                                          final label = s.enterpriseBadgeLabel(
+                                            badgeId,
+                                          );
+                                          if (label == null) {
+                                            return null;
+                                          }
+                                          return Chip(
+                                            avatar: Icon(
+                                              _badgeIcon(badgeId),
+                                              size: 16,
+                                              color: const Color(0xFF2D6A4F),
+                                            ),
+                                            label: Text(label),
+                                          );
+                                        })
+                                        .whereType<Widget>()
+                                        .toList(),
+                                  ),
+                                ),
+                              Text(
+                                'Pickup window: ${formatDateTime(listing.pickupStartAt)} - ${formatDateTime(listing.pickupEndAt)}',
+                              ),
+                            ],
+                            Text(
+                              'Reservation expires at: ${formatDateTime(reservation.expiresAt)}',
+                            ),
+                            const SizedBox(height: 12),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: BoxmatchColors.warmWarningBg,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: const Color(0xFFE5C27A),
+                                ),
+                              ),
+                              child: Text(
+                                s.publicPickupOnlyNotice,
+                                style: const TextStyle(
+                                  color: BoxmatchColors.warmWarningText,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            FilledButton.tonalIcon(
+                              onPressed: () => _reportAbuse(context),
+                              icon: const Icon(
+                                Icons.report_gmailerrorred_outlined,
+                              ),
+                              label: Text(s.reportSafetyConcern),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _desktopFrame(BuildContext context, Widget child) {
+    final width = MediaQuery.sizeOf(context).width;
+    if (width < 1024) {
+      return child;
+    }
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1000),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: child,
+        ),
       ),
     );
   }

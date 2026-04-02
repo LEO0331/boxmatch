@@ -40,6 +40,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Exhibition Surplus Food'), findsOneWidget);
-    expect(find.textContaining('No active listings'), findsOneWidget);
+    expect(find.textContaining('Running in local demo mode'), findsOneWidget);
   });
 }

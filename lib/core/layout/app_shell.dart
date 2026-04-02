@@ -35,12 +35,13 @@ class AppShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final index = _currentIndex();
-    final isWide = MediaQuery.sizeOf(context).width >= 900;
-    final useRail = kIsWeb || isWide;
+    final width = MediaQuery.sizeOf(context).width;
+    final isWide = width >= 900;
+    final useRail = (kIsWeb || isWide) && width >= 760;
     final s = AppStrings.of(context);
 
     if (useRail) {
-      final isCompactRail = MediaQuery.sizeOf(context).width < 1200;
+      final isCompactRail = width < 1200;
       return Scaffold(
         body: Row(
           children: [
