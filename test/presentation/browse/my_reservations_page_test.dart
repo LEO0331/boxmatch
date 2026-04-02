@@ -97,4 +97,13 @@ void main() {
 
     expect(find.text('Reservation cancelled.'), findsOneWidget);
   });
+
+  testWidgets('empty state shows browse CTA', (tester) async {
+    final repo = InMemorySurplusRepository();
+
+    await _pumpPage(tester, repo: repo);
+
+    expect(find.text('No reservations yet.'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'Browse listings'), findsOneWidget);
+  });
 }

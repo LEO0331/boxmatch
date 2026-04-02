@@ -20,15 +20,75 @@ class ReservationConfirmationPage extends StatelessWidget {
   final String listingId;
   final String reservationId;
 
+  Future<String?> _pickRiskReason(BuildContext context) async {
+    final s = AppStrings.of(context);
+    final reasons = <({String code, String label})>[
+      (
+        code: 'recipient_report_private_location_request',
+        label: s.riskReasonPrivateLocation,
+      ),
+      (
+        code: 'recipient_report_suspicious_behavior',
+        label: s.riskReasonSuspiciousBehavior,
+      ),
+      (
+        code: 'recipient_report_public_handoff_no_show',
+        label: s.riskReasonNoShow,
+      ),
+      (
+        code: 'recipient_report_food_condition_unsafe',
+        label: s.riskReasonUnsafeCondition,
+      ),
+      (code: 'recipient_report_other', label: s.riskReasonOther),
+    ];
+
+    return showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(s.reportRiskSelectReasonTitle),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: reasons
+                    .map(
+                      (reason) => ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(reason.label),
+                        onTap: () => Navigator.of(context).pop(reason.code),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(s.cancel),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _reportAbuse(BuildContext context) async {
     final deps = AppScope.of(context);
     final s = AppStrings.of(context);
+    final reason = await _pickRiskReason(context);
+    if (reason == null || reason.isEmpty || !context.mounted) {
+      return;
+    }
     try {
       final uid = await deps.identityService.ensureRecipientUid();
       await deps.repository.addAbuseSignal(
         listingId: listingId,
         claimerUid: uid,
-        reason: 'recipient_report_private_location_request',
+        reason: reason,
       );
       if (!context.mounted) {
         return;
@@ -44,6 +104,32 @@ class ReservationConfirmationPage extends StatelessWidget {
         context,
       ).showSnackBar(SnackBar(content: Text(error.message)));
     }
+  }
+
+  List<({IconData icon, String label})> _enterpriseBadges({
+    required Listing listing,
+    required AppStrings s,
+    required bool isFrequentEnterprise,
+  }) {
+    final badges = <({IconData icon, String label})>[];
+    if (listing.enterpriseVerified) {
+      badges.add((icon: Icons.verified, label: s.verifiedEnterprise));
+    }
+    if (isFrequentEnterprise) {
+      badges.add((icon: Icons.eco_outlined, label: s.frequentEnterprise));
+    }
+    if (listing.quantityTotal >= 20) {
+      badges.add((icon: Icons.workspace_premium_outlined, label: s.highImpactEnterprise));
+    }
+    if (listing.pickupEndAt.difference(listing.pickupStartAt) >=
+        const Duration(minutes: 120)) {
+      badges.add((icon: Icons.schedule_outlined, label: s.flexiblePickupEnterprise));
+    }
+    if (listing.expiresAt.difference(listing.pickupStartAt) >=
+        const Duration(minutes: 120)) {
+      badges.add((icon: Icons.inventory_2_outlined, label: s.stableShelfLifeEnterprise));
+    }
+    return badges;
   }
 
   @override
@@ -221,8 +307,11 @@ class ReservationConfirmationPage extends StatelessWidget {
                                   Text(
                                     'Enterprise: ${listing.displayNameOptional}',
                                   ),
-                                if (listing.enterpriseVerified ||
-                                    isFrequentEnterprise)
+                                if (_enterpriseBadges(
+                                  listing: listing,
+                                  s: s,
+                                  isFrequentEnterprise: isFrequentEnterprise,
+                                ).isNotEmpty)
                                   Padding(
                                     padding: const EdgeInsets.only(
                                       top: 6,
@@ -231,26 +320,23 @@ class ReservationConfirmationPage extends StatelessWidget {
                                     child: Wrap(
                                       spacing: 8,
                                       runSpacing: 6,
-                                      children: [
-                                        if (listing.enterpriseVerified)
-                                          Chip(
-                                            avatar: const Icon(
-                                              Icons.verified,
-                                              size: 16,
-                                              color: Color(0xFF2D6A4F),
+                                      children: _enterpriseBadges(
+                                        listing: listing,
+                                        s: s,
+                                        isFrequentEnterprise:
+                                            isFrequentEnterprise,
+                                      )
+                                          .map(
+                                            (badge) => Chip(
+                                              avatar: Icon(
+                                                badge.icon,
+                                                size: 16,
+                                                color: const Color(0xFF2D6A4F),
+                                              ),
+                                              label: Text(badge.label),
                                             ),
-                                            label: Text(s.verifiedEnterprise),
-                                          ),
-                                        if (isFrequentEnterprise)
-                                          Chip(
-                                            avatar: const Icon(
-                                              Icons.eco_outlined,
-                                              size: 16,
-                                              color: Color(0xFF2D6A4F),
-                                            ),
-                                            label: Text(s.frequentEnterprise),
-                                          ),
-                                      ],
+                                          )
+                                          .toList(),
                                     ),
                                   ),
                                 Text(

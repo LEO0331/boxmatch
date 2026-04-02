@@ -71,8 +71,23 @@ class AppStrings {
   String get offlineIdentityMode =>
       _zh ? '使用離線身份模式' : 'Using offline identity mode';
   String get reportSafetyConcern => _zh ? '回報風險事件' : 'Report safety concern';
+  String get reportRiskSelectReasonTitle =>
+      _zh ? '請選擇回報原因' : 'Select a reason';
+  String get riskReasonPrivateLocation => _zh
+      ? '要求改到私下地點面交'
+      : 'Asked to move pickup to a private location';
+  String get riskReasonSuspiciousBehavior =>
+      _zh ? '現場行為可疑 / 騷擾' : 'Suspicious behavior / harassment';
+  String get riskReasonNoShow =>
+      _zh ? '公開取餐點無人交付' : 'No handoff at the public pickup point';
+  String get riskReasonUnsafeCondition =>
+      _zh ? '食物狀態疑似不安全' : 'Food condition appears unsafe';
+  String get riskReasonOther => _zh ? '其他風險' : 'Other risk';
   String get abuseReported => _zh ? '已送出風險回報。' : 'Safety report submitted.';
   String get verifiedEnterprise => _zh ? '已驗證企業' : 'Verified enterprise';
+  String get highImpactEnterprise => _zh ? '高量捐贈企業' : 'High-impact donor';
+  String get flexiblePickupEnterprise => _zh ? '彈性取餐時段' : 'Flexible pickup window';
+  String get stableShelfLifeEnterprise => _zh ? '保存時效較穩定' : 'Stable shelf-life setup';
   String get pendingConfirm => _zh ? '待確認' : 'Pending';
   String get confirmedFilter => _zh ? '已確認' : 'Confirmed';
   String get showPickupCodeHelp => _zh

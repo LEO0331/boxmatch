@@ -1,5 +1,6 @@
 import 'package:boxmatch/app/app.dart';
 import 'package:boxmatch/app/app_scope.dart';
+import 'package:boxmatch/core/identity/recipient_identity_service.dart';
 import 'package:boxmatch/features/surplus/data/in_memory_surplus_repository.dart';
 import 'package:boxmatch/features/surplus/domain/listing.dart';
 import 'package:boxmatch/features/surplus/domain/listing_input.dart';
@@ -19,6 +20,8 @@ class _InstrumentedRepository extends InMemorySurplusRepository {
   bool activeListingsStreamError = false;
   bool reservationStreamError = false;
   bool throwOnReserve = false;
+  bool throwOnAbuseSignal = false;
+  String? lastAbuseReason;
   int reconcileCalls = 0;
 
   final Set<String> listingStreamErrorIds = <String>{};
@@ -88,6 +91,31 @@ class _InstrumentedRepository extends InMemorySurplusRepository {
       disclaimerAccepted: disclaimerAccepted,
     );
   }
+
+  @override
+  Future<void> addAbuseSignal({
+    required String listingId,
+    required String claimerUid,
+    required String reason,
+  }) async {
+    if (throwOnAbuseSignal) {
+      throw const ValidationException('Abuse report failed for test.');
+    }
+    lastAbuseReason = reason;
+    await super.addAbuseSignal(
+      listingId: listingId,
+      claimerUid: claimerUid,
+      reason: reason,
+    );
+  }
+}
+
+class _LocalFallbackIdentityService implements RecipientIdentityService {
+  @override
+  bool get isUsingLocalFallback => true;
+
+  @override
+  Future<String> ensureRecipientUid() async => 'local-fallback-user';
 }
 
 ListingInput _input(
@@ -194,8 +222,12 @@ Future<void> _pumpConfirmation(
   _InstrumentedRepository repo, {
   required String listingId,
   required String reservationId,
+  RecipientIdentityService? identityService,
 }) async {
-  final dependencies = await buildTestDependencies(repository: repo);
+  final dependencies = await buildTestDependencies(
+    repository: repo,
+    identityService: identityService,
+  );
   await tester.pumpWidget(
     AppScope(
       dependencies: dependencies,
@@ -511,4 +543,49 @@ void main() {
       expect(find.text('Cancelled'), findsWidgets);
     },
   );
+
+  testWidgets(
+    'reservation confirmation shows local fallback hint and can go back',
+    (tester) async {
+      final now = DateTime.now();
+      final repo = _InstrumentedRepository()
+        ..forcedListings['badge-listing'] = _forcedListing(
+          now,
+          id: 'badge-listing',
+          status: ListingStatus.active,
+          quantityRemaining: 1,
+          expiresAt: now.add(const Duration(hours: 2)),
+          displayNameOptional: 'Trusted Enterprise',
+          enterpriseVerified: true,
+        )
+        ..forcedListings['badge-listing-2'] = _forcedListing(
+          now,
+          id: 'badge-listing-2',
+          status: ListingStatus.active,
+          quantityRemaining: 1,
+          expiresAt: now.add(const Duration(hours: 3)),
+          displayNameOptional: 'Trusted Enterprise',
+          enterpriseVerified: false,
+        )
+        ..forcedReservations['badge-reservation'] = _forcedReservation(
+          now,
+          id: 'badge-reservation',
+          listingId: 'badge-listing',
+          status: ReservationStatus.reserved,
+        );
+
+      await _pumpConfirmation(
+        tester,
+        repo,
+        listingId: 'badge-listing',
+        reservationId: 'badge-reservation',
+        identityService: _LocalFallbackIdentityService(),
+      );
+
+      expect(find.text('Using offline identity mode'), findsOneWidget);
+      expect(find.text('1234'), findsOneWidget);
+      expect(find.widgetWithText(OutlinedButton, 'Back to listings'), findsOneWidget);
+    },
+  );
+
 }
