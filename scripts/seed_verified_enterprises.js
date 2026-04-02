@@ -45,20 +45,28 @@ async function main() {
   }
 
   const raw = fs.readFileSync(inputPath, 'utf8');
-  let records;
+  let parsed;
   try {
-    records = JSON.parse(raw);
+    parsed = JSON.parse(raw);
   } catch (error) {
     fail(`Invalid JSON in ${inputPath}: ${error.message}`);
   }
-
+  const records = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(parsed?.verifiedEnterprises)
+    ? parsed.verifiedEnterprises
+    : null;
+  const badgeRules = Array.isArray(parsed) ? null : parsed?.badgeRules;
   if (!Array.isArray(records) || records.length === 0) {
-    fail('Seed data must be a non-empty JSON array.');
+    fail(
+      'Seed data must be a non-empty JSON array, or an object with verifiedEnterprises[].'
+    );
   }
 
   initAdminFromEnv();
   const db = admin.firestore();
   const collection = db.collection('verified_enterprises');
+  const badgeRulesRef = db.collection('badge_rules').doc('default');
   const now = new Date();
 
   let upserted = 0;
@@ -98,11 +106,30 @@ async function main() {
     upserted += 1;
   }
 
+  let badgeRulesUpdated = false;
+  if (badgeRules && typeof badgeRules === 'object') {
+    const mergedBadgeRules = {
+      enabled: badgeRules.enabled !== false,
+      rules: badgeRules.rules && typeof badgeRules.rules === 'object'
+        ? badgeRules.rules
+        : {}
+    };
+    await badgeRulesRef.set(
+      {
+        ...mergedBadgeRules,
+        updatedAt: now
+      },
+      { merge: true }
+    );
+    badgeRulesUpdated = true;
+  }
+
   console.log(
     JSON.stringify({
       ok: true,
       collection: 'verified_enterprises',
       upserted,
+      badgeRulesUpdated,
       source: inputPath
     })
   );

@@ -45,7 +45,7 @@ Future<void> _pumpPage(
 }
 
 void main() {
-  testWidgets('shows privacy/faq and frequent enterprise badge', (
+  testWidgets('shows privacy/faq without client-side inferred badge', (
     tester,
   ) async {
     final repo = InMemorySurplusRepository();
@@ -75,7 +75,7 @@ void main() {
 
     expect(find.text('Privacy & FAQ'), findsOneWidget);
     expect(find.textContaining('Privacy note'), findsOneWidget);
-    expect(find.text('Frequent enterprise'), findsNWidgets(2));
+    expect(find.text('Frequent enterprise'), findsNothing);
   });
 
   testWidgets('cancel reservation action works', (tester) async {

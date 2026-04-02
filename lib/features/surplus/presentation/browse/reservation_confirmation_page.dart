@@ -106,30 +106,21 @@ class ReservationConfirmationPage extends StatelessWidget {
     }
   }
 
-  List<({IconData icon, String label})> _enterpriseBadges({
-    required Listing listing,
-    required AppStrings s,
-    required bool isFrequentEnterprise,
-  }) {
-    final badges = <({IconData icon, String label})>[];
-    if (listing.enterpriseVerified) {
-      badges.add((icon: Icons.verified, label: s.verifiedEnterprise));
+  IconData _badgeIcon(String badgeId) {
+    switch (badgeId) {
+      case 'verified':
+        return Icons.verified;
+      case 'quality_trusted':
+        return Icons.emoji_events_outlined;
+      case 'high_impact':
+        return Icons.workspace_premium_outlined;
+      case 'flexible_pickup':
+        return Icons.schedule_outlined;
+      case 'stable_shelf_life':
+        return Icons.inventory_2_outlined;
+      default:
+        return Icons.star_outline;
     }
-    if (isFrequentEnterprise) {
-      badges.add((icon: Icons.eco_outlined, label: s.frequentEnterprise));
-    }
-    if (listing.quantityTotal >= 20) {
-      badges.add((icon: Icons.workspace_premium_outlined, label: s.highImpactEnterprise));
-    }
-    if (listing.pickupEndAt.difference(listing.pickupStartAt) >=
-        const Duration(minutes: 120)) {
-      badges.add((icon: Icons.schedule_outlined, label: s.flexiblePickupEnterprise));
-    }
-    if (listing.expiresAt.difference(listing.pickupStartAt) >=
-        const Duration(minutes: 120)) {
-      badges.add((icon: Icons.inventory_2_outlined, label: s.stableShelfLifeEnterprise));
-    }
-    return badges;
   }
 
   @override
@@ -178,26 +169,11 @@ class ReservationConfirmationPage extends StatelessWidget {
               }
 
               final listing = listingSnapshot.data;
-              return StreamBuilder<List<Listing>>(
-                stream: repository.watchActiveListings(),
-                builder: (context, activeListingsSnapshot) {
-                  final activeListings =
-                      activeListingsSnapshot.data ?? const <Listing>[];
-                  final alias = listing?.displayNameOptional?.trim() ?? '';
-                  final isFrequentEnterprise =
-                      alias.isNotEmpty &&
-                      activeListings
-                              .where(
-                                (item) =>
-                                    (item.displayNameOptional ?? '')
-                                        .trim()
-                                        .toLowerCase() ==
-                                    alias.toLowerCase(),
-                              )
-                              .length >=
-                          2;
+              final badgeIds = (listing?.enterpriseBadges ?? const <String>[])
+                  .toSet()
+                  .toList();
 
-                  return ListView(
+              return ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
                       if (identityService.isUsingLocalFallback)
@@ -307,11 +283,7 @@ class ReservationConfirmationPage extends StatelessWidget {
                                   Text(
                                     'Enterprise: ${listing.displayNameOptional}',
                                   ),
-                                if (_enterpriseBadges(
-                                  listing: listing,
-                                  s: s,
-                                  isFrequentEnterprise: isFrequentEnterprise,
-                                ).isNotEmpty)
+                                if (badgeIds.isNotEmpty)
                                   Padding(
                                     padding: const EdgeInsets.only(
                                       top: 6,
@@ -320,22 +292,23 @@ class ReservationConfirmationPage extends StatelessWidget {
                                     child: Wrap(
                                       spacing: 8,
                                       runSpacing: 6,
-                                      children: _enterpriseBadges(
-                                        listing: listing,
-                                        s: s,
-                                        isFrequentEnterprise:
-                                            isFrequentEnterprise,
-                                      )
-                                          .map(
-                                            (badge) => Chip(
+                                      children: badgeIds
+                                          .map((badgeId) {
+                                            final label =
+                                                s.enterpriseBadgeLabel(badgeId);
+                                            if (label == null) {
+                                              return null;
+                                            }
+                                            return Chip(
                                               avatar: Icon(
-                                                badge.icon,
+                                                _badgeIcon(badgeId),
                                                 size: 16,
                                                 color: const Color(0xFF2D6A4F),
                                               ),
-                                              label: Text(badge.label),
-                                            ),
-                                          )
+                                              label: Text(label),
+                                            );
+                                          })
+                                          .whereType<Widget>()
                                           .toList(),
                                     ),
                                   ),
@@ -368,8 +341,6 @@ class ReservationConfirmationPage extends StatelessWidget {
                       ),
                     ],
                   );
-                },
-              );
             },
           );
         },

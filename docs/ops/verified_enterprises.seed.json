@@ -1,18 +1,46 @@
-[
-  {
-    "aliasNormalized": "acme booth a",
-    "venueId": "taipei-nangang-exhibition-center-hall-1",
-    "active": true,
-    "reviewedBy": "ops-leo",
-    "reviewedAt": "2026-04-02T00:00:00.000Z",
-    "notes": "manual verification passed"
-  },
-  {
-    "aliasNormalized": "demo drinks co",
-    "venueId": "taipei-nangang-exhibition-center-hall-2",
-    "active": true,
-    "reviewedBy": "ops-leo",
-    "reviewedAt": "2026-04-02T00:00:00.000Z",
-    "notes": "event organizer confirmation"
+{
+  "verifiedEnterprises": [
+    {
+      "aliasNormalized": "acme booth a",
+      "venueId": "taipei-nangang-exhibition-center-hall-1",
+      "active": true,
+      "reviewedBy": "ops-leo",
+      "reviewedAt": "2026-04-02T00:00:00.000Z",
+      "notes": "manual verification passed"
+    },
+    {
+      "aliasNormalized": "demo drinks co",
+      "venueId": "taipei-nangang-exhibition-center-hall-2",
+      "active": true,
+      "reviewedBy": "ops-leo",
+      "reviewedAt": "2026-04-02T00:00:00.000Z",
+      "notes": "event organizer confirmation"
+    }
+  ],
+  "badgeRules": {
+    "enabled": true,
+    "rules": {
+      "verified": {
+        "enabled": true
+      },
+      "quality_trusted": {
+        "enabled": true,
+        "minCompletedRate": 0.8,
+        "maxCancelledRate": 0.2,
+        "minReservations": 5
+      },
+      "high_impact": {
+        "enabled": true,
+        "minQuantityTotal": 20
+      },
+      "flexible_pickup": {
+        "enabled": true,
+        "minPickupWindowMinutes": 120
+      },
+      "stable_shelf_life": {
+        "enabled": true,
+        "minExpiryAfterPickupStartMinutes": 120
+      }
+    }
   }
-]
+}

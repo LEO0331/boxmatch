@@ -316,9 +316,16 @@ class _ListingsPageState extends State<ListingsPage> {
                             final isFavorite = favoritesStore.isFavorite(
                               listing.venueId,
                             );
-                            final verifiedTag = listing.enterpriseVerified
-                                ? ' · ${s.verifiedEnterprise}'
-                                : '';
+                            final badgeLabels = listing.enterpriseBadges
+                                .map(s.enterpriseBadgeLabel)
+                                .whereType<String>()
+                                .toList();
+                            final badgeTag = badgeLabels.isEmpty
+                                ? null
+                                : badgeLabels.first;
+                            final donorSuffix = badgeTag == null
+                                ? ''
+                                : ' · $badgeTag';
 
                             return Card(
                               child: ListTile(
@@ -328,7 +335,7 @@ class _ListingsPageState extends State<ListingsPage> {
                                 subtitle: Text(
                                   '${venue?.name ?? 'Venue'}\n'
                                   'Pickup: ${formatDateTime(listing.pickupStartAt)} - ${formatDateTime(listing.pickupEndAt)}\n'
-                                  'By: $donorName$verifiedTag',
+                                  'By: $donorName$donorSuffix',
                                 ),
                                 isThreeLine: true,
                                 trailing: SizedBox(
