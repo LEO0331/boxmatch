@@ -4,6 +4,8 @@
 
 - Flutter API calls from `lib/features/surplus/data/firestore_surplus_repository.dart`.
 - Applies to reserve + token validation + enterprise reservation fetch endpoints.
+- Recipient endpoints now send bearer token when available:
+  - `Authorization: Bearer <Firebase ID token>`
 
 ## Timeout
 
@@ -36,6 +38,18 @@
 - `POST /enterprise/listings/:listingId/validate-token`
 - `POST /enterprise/listings/:listingId/reservations`
 - `POST /recipient/listings/:listingId/reserve`
+
+## Recipient Auth Migration (Phase 1)
+
+- Phase 1 window: `2026-04-02` to `2027-04-01`.
+- Client behavior:
+  - sends bearer token when Firebase auth is available.
+  - keeps legacy `claimerUid` body for compatibility.
+- Server behavior:
+  - prefers bearer token uid.
+  - falls back to `claimerUid` only when token is missing.
+  - rejects uid mismatch (`AUTH_UID_MISMATCH`).
+  - can enforce token-only mode using `REQUIRE_ID_TOKEN=true`.
 
 ## Notes
 

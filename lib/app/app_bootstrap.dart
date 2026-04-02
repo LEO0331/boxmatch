@@ -36,6 +36,13 @@ Future<AppDependencies> bootstrapApp() async {
     final repository = FirestoreSurplusRepository(
       FirebaseFirestore.instance,
       apiBaseUrl: apiBaseUrl,
+      idTokenProvider: () async {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user == null) {
+          return null;
+        }
+        return user.getIdToken();
+      },
     );
     await repository.ensureSeedData();
 
