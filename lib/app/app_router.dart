@@ -7,6 +7,30 @@ import '../features/surplus/presentation/browse/reservation_confirmation_page.da
 import '../features/surplus/presentation/enterprise/enterprise_listing_page.dart';
 import '../features/surplus/presentation/map/venues_map_page.dart';
 
+String? _extractEnterpriseEditToken(GoRouterState state) {
+  final fromQuery = state.uri.queryParameters['token'];
+  if (fromQuery != null && fromQuery.isNotEmpty) {
+    return fromQuery;
+  }
+
+  final fragment = Uri.base.fragment;
+  if (fragment.isEmpty) {
+    return null;
+  }
+
+  final normalized = fragment.startsWith('/') ? fragment : '/$fragment';
+  try {
+    final fragmentUri = Uri.parse(normalized);
+    final fromFragment = fragmentUri.queryParameters['token'];
+    if (fromFragment != null && fromFragment.isNotEmpty) {
+      return fromFragment;
+    }
+  } catch (_) {
+    // no-op: fall through and return null
+  }
+  return null;
+}
+
 GoRouter buildRouter() {
   return GoRouter(
     initialLocation: '/',
@@ -47,7 +71,7 @@ GoRouter buildRouter() {
         path: '/enterprise/edit/:listingId',
         builder: (context, state) {
           final listingId = state.pathParameters['listingId'];
-          final token = state.uri.queryParameters['token'];
+          final token = _extractEnterpriseEditToken(state);
           return EnterpriseListingPage(listingId: listingId, token: token);
         },
       ),
