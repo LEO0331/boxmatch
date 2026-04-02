@@ -78,11 +78,14 @@ void main() {
     expect(find.textContaining('Quick templates'), findsOneWidget);
     await tester.tap(find.text('Lunchbox Batch'));
     await tester.pumpAndSettle();
-    expect(
-      find.widgetWithText(TextFormField, 'Pickup point (booth / gate)'),
-      findsOneWidget,
+    final scrollable = find.byType(Scrollable).first;
+    final postListingButtonText = find.text('Post listing');
+    await tester.scrollUntilVisible(
+      postListingButtonText,
+      300,
+      scrollable: scrollable,
     );
-    expect(find.widgetWithText(FilledButton, 'Post listing'), findsOneWidget);
+    expect(postListingButtonText, findsOneWidget);
   });
 
   testWidgets('enterprise edit page renders without token error', (

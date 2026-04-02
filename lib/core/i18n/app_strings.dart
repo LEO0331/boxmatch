@@ -23,8 +23,24 @@ class AppStrings {
   String get navPost => _zh ? '張貼' : 'Post';
 
   String get listingsTitle => _zh ? '展場剩食媒合' : 'Exhibition Surplus Food';
+  String get listingsSubtitle =>
+      _zh ? '在公開展場快速媒合，減少浪費。' : 'Fast public-venue matching to reduce waste.';
   String get refresh => _zh ? '重新整理' : 'Refresh';
   String get privateDonor => _zh ? '匿名企業' : 'Private donor';
+  String get filterAllVenues => _zh ? '全部場館' : 'All venues';
+  String get filterFavoriteVenues => _zh ? '僅收藏場館' : 'Favorites only';
+  String get filterNearHubs => _zh ? '附近場館' : 'Near hubs';
+  String get filterAvailableNow => _zh ? '可立即取餐' : 'Available now';
+  String get clearFilter => _zh ? '清除篩選' : 'Clear filter';
+  String get reserveNow => _zh ? '立即預約' : 'Reserve';
+  String get openMap => _zh ? '地圖' : 'Map';
+  String get backToListings => _zh ? '回清單' : 'Back to listings';
+  String get pickupCountdownLabel => _zh ? '剩餘可領取時間' : 'Time left';
+  String pickupCountdownValue(int minutes) =>
+      _zh ? '$minutes 分鐘' : '$minutes min';
+  String get apiWarmupRetryHint => _zh
+      ? '服務可能正在喚醒中，系統會自動重試一次。'
+      : 'Service may still be warming up. We automatically retry once.';
   String get noActiveListings => _zh
       ? '目前沒有可領取項目。\n可切到地圖查看，或由企業先發佈。'
       : 'No active listings right now.\nTry checking map view or post a new listing.';
@@ -71,11 +87,9 @@ class AppStrings {
   String get offlineIdentityMode =>
       _zh ? '使用離線身份模式' : 'Using offline identity mode';
   String get reportSafetyConcern => _zh ? '回報風險事件' : 'Report safety concern';
-  String get reportRiskSelectReasonTitle =>
-      _zh ? '請選擇回報原因' : 'Select a reason';
-  String get riskReasonPrivateLocation => _zh
-      ? '要求改到私下地點面交'
-      : 'Asked to move pickup to a private location';
+  String get reportRiskSelectReasonTitle => _zh ? '請選擇回報原因' : 'Select a reason';
+  String get riskReasonPrivateLocation =>
+      _zh ? '要求改到私下地點面交' : 'Asked to move pickup to a private location';
   String get riskReasonSuspiciousBehavior =>
       _zh ? '現場行為可疑 / 騷擾' : 'Suspicious behavior / harassment';
   String get riskReasonNoShow =>
@@ -85,10 +99,13 @@ class AppStrings {
   String get riskReasonOther => _zh ? '其他風險' : 'Other risk';
   String get abuseReported => _zh ? '已送出風險回報。' : 'Safety report submitted.';
   String get verifiedEnterprise => _zh ? '已驗證企業' : 'Verified enterprise';
-  String get trustedQualityEnterprise => _zh ? '交付品質穩定' : 'Trusted handoff quality';
+  String get trustedQualityEnterprise =>
+      _zh ? '交付品質穩定' : 'Trusted handoff quality';
   String get highImpactEnterprise => _zh ? '高量捐贈企業' : 'High-impact donor';
-  String get flexiblePickupEnterprise => _zh ? '彈性取餐時段' : 'Flexible pickup window';
-  String get stableShelfLifeEnterprise => _zh ? '保存時效較穩定' : 'Stable shelf-life setup';
+  String get flexiblePickupEnterprise =>
+      _zh ? '彈性取餐時段' : 'Flexible pickup window';
+  String get stableShelfLifeEnterprise =>
+      _zh ? '保存時效較穩定' : 'Stable shelf-life setup';
   String get pendingConfirm => _zh ? '待確認' : 'Pending';
   String get confirmedFilter => _zh ? '已確認' : 'Confirmed';
   String get showPickupCodeHelp => _zh
@@ -106,8 +123,8 @@ class AppStrings {
   String get retry => _zh ? '重試' : 'Retry';
   String get genericLoadErrorTitle => _zh ? '讀取失敗' : 'Unable to load';
   String get genericLoadErrorBody => _zh
-      ? '目前資料暫時無法載入，請稍後再試。'
-      : 'We cannot load data right now. Please try again.';
+      ? '目前資料暫時無法載入，請稍後再試。若剛開啟服務，可能需要幾秒喚醒。'
+      : 'We cannot load data right now. If the service just woke up, retry in a few seconds.';
 
   String statusLabel(AppStatusLabel status) {
     switch (status) {

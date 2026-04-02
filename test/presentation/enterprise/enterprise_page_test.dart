@@ -40,7 +40,10 @@ class _EnterpriseInstrumentedRepository extends InMemorySurplusRepository {
     if (reservationsStreamError) {
       return Stream.error(StateError('reservations stream failed'));
     }
-    return super.watchReservationsForListing(listingId: listingId, token: token);
+    return super.watchReservationsForListing(
+      listingId: listingId,
+      token: token,
+    );
   }
 
   @override
@@ -60,7 +63,11 @@ class _EnterpriseInstrumentedRepository extends InMemorySurplusRepository {
     if (throwOnUpdate) {
       throw const ValidationException('Update failed for test.');
     }
-    return super.updateListing(listingId: listingId, token: token, input: input);
+    return super.updateListing(
+      listingId: listingId,
+      token: token,
+      input: input,
+    );
   }
 
   @override
@@ -339,7 +346,9 @@ void main() {
     expect(find.text('Listing updated.'), findsOneWidget);
   });
 
-  testWidgets('rotate token success shows new secure link card', (tester) async {
+  testWidgets('rotate token success shows new secure link card', (
+    tester,
+  ) async {
     final repo = InMemorySurplusRepository();
     final created = await repo.createListing(_input(DateTime.now()));
 
@@ -388,7 +397,9 @@ void main() {
     expect(find.textContaining('Save this edit link securely'), findsNothing);
   });
 
-  testWidgets('confirm pickup success updates reservation state', (tester) async {
+  testWidgets('confirm pickup success updates reservation state', (
+    tester,
+  ) async {
     final repo = InMemorySurplusRepository();
     final created = await repo.createListing(_input(DateTime.now()));
     final reservation = await repo.reserveListing(
@@ -406,7 +417,10 @@ void main() {
     );
 
     final scrollable = find.byType(Scrollable).first;
-    final codeField = find.widgetWithText(TextField, 'Enter 4-digit pickup code');
+    final codeField = find.widgetWithText(
+      TextField,
+      'Enter 4-digit pickup code',
+    );
     await tester.scrollUntilVisible(codeField, 250, scrollable: scrollable);
     await tester.enterText(codeField.first, reservation.pickupCode);
 
@@ -450,14 +464,14 @@ void main() {
     );
 
     final scrollable = find.byType(Scrollable).first;
-    final pendingChip = find.widgetWithText(ChoiceChip, 'Pending');
+    final pendingChip = find.textContaining('Pending');
     await tester.scrollUntilVisible(pendingChip, 250, scrollable: scrollable);
     await tester.tap(pendingChip);
     await tester.pumpAndSettle();
     expect(find.textContaining('Status: Reserved'), findsWidgets);
     expect(find.textContaining('Status: Completed'), findsNothing);
 
-    final confirmedChip = find.widgetWithText(ChoiceChip, 'Confirmed');
+    final confirmedChip = find.textContaining('Confirmed');
     await tester.tap(confirmedChip);
     await tester.pumpAndSettle();
     expect(find.textContaining('Status: Completed'), findsWidgets);
@@ -509,37 +523,35 @@ void main() {
     await _pumpPage(tester, repo: repo, usingFirebase: true);
 
     expect(find.textContaining('Template performance'), findsOneWidget);
-    expect(
-      find.textContaining('Not enough sample yet'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('Not enough sample yet'), findsOneWidget);
 
     await tester.tap(find.byIcon(Icons.refresh).first);
     await tester.pumpAndSettle();
     expect(find.textContaining('Template performance'), findsOneWidget);
   });
 
-  testWidgets('create mode shows venue-required snackbar when no venue exists', (
-    tester,
-  ) async {
-    final repo = _EnterpriseInstrumentedRepository()..emptyVenues = true;
-    await _pumpPage(tester, repo: repo);
+  testWidgets(
+    'create mode shows venue-required snackbar when no venue exists',
+    (tester) async {
+      final repo = _EnterpriseInstrumentedRepository()..emptyVenues = true;
+      await _pumpPage(tester, repo: repo);
 
-    await tester.enterText(
-      find.widgetWithText(TextFormField, 'Pickup point (booth / gate)'),
-      'Service desk',
-    );
-    await tester.enterText(
-      find.widgetWithText(TextFormField, 'Simple description'),
-      'No venue test',
-    );
-    await tester.tap(find.byType(CheckboxListTile));
-    await tester.pumpAndSettle();
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Pickup point (booth / gate)'),
+        'Service desk',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Simple description'),
+        'No venue test',
+      );
+      await tester.tap(find.byType(CheckboxListTile));
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.widgetWithText(FilledButton, 'Post listing'));
-    await tester.pumpAndSettle();
-    expect(find.text('Please select a venue.'), findsOneWidget);
-  });
+      await tester.tap(find.widgetWithText(FilledButton, 'Post listing'));
+      await tester.pumpAndSettle();
+      expect(find.text('Please select a venue.'), findsOneWidget);
+    },
+  );
 
   testWidgets('create mode surfaces create error', (tester) async {
     final repo = _EnterpriseInstrumentedRepository()..throwOnCreate = true;
@@ -608,7 +620,8 @@ void main() {
   });
 
   testWidgets('confirm pickup surfaces backend error', (tester) async {
-    final repo = _EnterpriseInstrumentedRepository()..throwOnConfirmPickup = true;
+    final repo = _EnterpriseInstrumentedRepository()
+      ..throwOnConfirmPickup = true;
     final created = await repo.createListing(_input(DateTime.now()));
     final reservation = await repo.reserveListing(
       listingId: created.listingId,
@@ -625,7 +638,10 @@ void main() {
     );
 
     final scrollable = find.byType(Scrollable).first;
-    final codeField = find.widgetWithText(TextField, 'Enter 4-digit pickup code');
+    final codeField = find.widgetWithText(
+      TextField,
+      'Enter 4-digit pickup code',
+    );
     await tester.scrollUntilVisible(codeField, 250, scrollable: scrollable);
     await tester.enterText(codeField.first, reservation.pickupCode);
     await tester.tap(find.widgetWithText(FilledButton, 'Confirm pickup').first);

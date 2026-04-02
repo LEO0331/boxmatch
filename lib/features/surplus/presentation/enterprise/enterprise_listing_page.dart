@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../app/app_scope.dart';
 import '../../../../core/i18n/app_strings.dart';
 import '../../../../core/i18n/language_menu_button.dart';
+import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/load_error_view.dart';
 import '../../../../core/utils/date_time_formatters.dart';
 import '../../../surplus/domain/listing_input.dart';
@@ -536,25 +537,23 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
         listingToTemplate: listingToTemplate,
         reservations: reservationsSnap.docs.map((doc) => doc.data()),
       );
-      return computed
-          .map((item) {
-            final template = _quickTemplates.firstWhere(
-              (t) => t.id == item.templateId,
-              orElse: () => _quickTemplates.first,
-            );
-            return _TemplatePerformance(
-              templateId: item.templateId,
-              templateName: AppScope.of(context).localeController.isZhTw
-                  ? template.nameZh
-                  : template.nameEn,
-              totalReservations: item.totalReservations,
-              completedReservations: item.completedReservations,
-              cancelledReservations: item.cancelledReservations,
-              completedRate: item.completedRate,
-              cancelledRate: item.cancelledRate,
-            );
-          })
-          .toList();
+      return computed.map((item) {
+        final template = _quickTemplates.firstWhere(
+          (t) => t.id == item.templateId,
+          orElse: () => _quickTemplates.first,
+        );
+        return _TemplatePerformance(
+          templateId: item.templateId,
+          templateName: AppScope.of(context).localeController.isZhTw
+              ? template.nameZh
+              : template.nameEn,
+          totalReservations: item.totalReservations,
+          completedReservations: item.completedReservations,
+          cancelledReservations: item.cancelledReservations,
+          completedRate: item.completedRate,
+          cancelledRate: item.cancelledRate,
+        );
+      }).toList();
     } catch (_) {
       return const <_TemplatePerformance>[];
     }
@@ -894,267 +893,123 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
         ),
         actions: const [LanguageMenuButton()],
       ),
-      body: StreamBuilder<List<Venue>>(
-        stream: repository.watchVenues(),
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return LoadErrorView(
-              title: s.genericLoadErrorTitle,
-              message: s.genericLoadErrorBody,
-              retryLabel: s.retry,
-              onRetry: () => setState(() {}),
-            );
-          }
+      body: _desktopFrame(
+        context,
+        StreamBuilder<List<Venue>>(
+          stream: repository.watchVenues(),
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return LoadErrorView(
+                title: s.genericLoadErrorTitle,
+                message: s.genericLoadErrorBody,
+                retryLabel: s.retry,
+                onRetry: () => setState(() {}),
+              );
+            }
 
-          final venues = snapshot.data ?? const <Venue>[];
+            final venues = snapshot.data ?? const <Venue>[];
 
-          if (_selectedVenueId == null && venues.isNotEmpty) {
-            _selectedVenueId = venues.first.id;
-            _applyVenueDefaultPickupPoint(
-              venueId: _selectedVenueId,
-              isZh: AppScope.of(context).localeController.isZhTw,
-            );
-          }
+            if (_selectedVenueId == null && venues.isNotEmpty) {
+              _selectedVenueId = venues.first.id;
+              _applyVenueDefaultPickupPoint(
+                venueId: _selectedVenueId,
+                isZh: AppScope.of(context).localeController.isZhTw,
+              );
+            }
 
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              if (_errorMessage != null)
-                Card(
-                  color: Theme.of(context).colorScheme.errorContainer,
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Text(_errorMessage!),
+            return ListView(
+              padding: const EdgeInsets.all(18),
+              children: [
+                if (_errorMessage != null)
+                  Card(
+                    color: Theme.of(context).colorScheme.errorContainer,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Text(_errorMessage!),
+                    ),
                   ),
-                ),
-              if (_createdEditLink != null) _buildSecureLinkCard(context),
-              if (!_isEditMode) _buildTemplateCard(context),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          AppScope.of(context).localeController.isZhTw
-                              ? '1) 場館與交付資訊'
-                              : '1) Venue & handoff info',
-                          style: Theme.of(context).textTheme.titleSmall,
-                        ),
-                        const SizedBox(height: 8),
-                        DropdownButtonFormField<String>(
-                          initialValue: _selectedVenueId,
-                          items: venues
-                              .map(
-                                (venue) => DropdownMenuItem(
-                                  value: venue.id,
-                                  child: Text(venue.name),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: _busy
-                              ? null
-                              : (value) {
-                                  setState(() {
-                                    _selectedVenueId = value;
-                                    _applyVenueDefaultPickupPoint(
-                                      venueId: value,
-                                      isZh: AppScope.of(
-                                        context,
-                                      ).localeController.isZhTw,
-                                    );
-                                  });
-                                },
-                          decoration: const InputDecoration(labelText: 'Venue'),
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: _pickupPointController,
-                          decoration: const InputDecoration(
-                            labelText: 'Pickup point (booth / gate)',
-                          ),
-                          validator: (value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return 'Pickup point is required.';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 8),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: OutlinedButton.icon(
-                            onPressed: _busy
-                                ? null
-                                : () => setState(() {
-                                    _applyVenueDefaultPickupPoint(
-                                      venueId: _selectedVenueId,
-                                      isZh: AppScope.of(
-                                        context,
-                                      ).localeController.isZhTw,
-                                      force: true,
-                                    );
-                                  }),
-                            icon: const Icon(Icons.place_outlined),
-                            label: Text(
-                              AppScope.of(context).localeController.isZhTw
-                                  ? '套用場館預設取餐點'
-                                  : 'Use venue default pickup point',
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFFF7E8),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                              color: const Color(0xFFE5C27A),
-                            ),
-                          ),
-                          child: Text(
+                if (_createdEditLink != null) _buildSecureLinkCard(context),
+                if (!_isEditMode) _buildTemplateCard(context),
+                _buildTrustAndSafetyCard(context),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
                             AppScope.of(context).localeController.isZhTw
-                                ? '提醒：僅限公開展場/服務台交付，請勿要求私下移動地點。'
-                                : 'Safety: use only public venue/service-desk handoff. Do not request private location changes.',
-                            style: const TextStyle(color: Color(0xFF7A4A00)),
+                                ? '1) 場館與交付資訊'
+                                : '1) Venue & handoff info',
+                            style: Theme.of(context).textTheme.titleSmall,
                           ),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          AppScope.of(context).localeController.isZhTw
-                              ? '2) 品項資訊'
-                              : '2) Item details',
-                          style: Theme.of(context).textTheme.titleSmall,
-                        ),
-                        const SizedBox(height: 8),
-                        TextFormField(
-                          controller: _itemTypeController,
-                          decoration: const InputDecoration(
-                            labelText: 'Item type',
-                          ),
-                          validator: (value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return 'Item type is required.';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: _descriptionController,
-                          maxLines: 3,
-                          decoration: const InputDecoration(
-                            labelText: 'Simple description',
-                          ),
-                          validator: (value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return 'Description is required.';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: _quantityController,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
-                            labelText: 'Quantity',
-                          ),
-                          validator: (value) {
-                            final parsed = int.tryParse(value ?? '');
-                            if (parsed == null || parsed <= 0) {
-                              return 'Enter a quantity of at least 1.';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: _displayNameController,
-                          decoration: const InputDecoration(
-                            labelText: 'Display name (optional)',
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          AppScope.of(context).localeController.isZhTw
-                              ? '3) 時段設定'
-                              : '3) Time windows',
-                          style: Theme.of(context).textTheme.titleSmall,
-                        ),
-                        const SizedBox(height: 8),
-                        ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Pickup start'),
-                          subtitle: Text(formatDateTime(_pickupStartAt)),
-                          trailing: IconButton(
-                            onPressed: _busy
-                                ? null
-                                : () => _pickDateTime(
-                                    initial: _pickupStartAt,
-                                    onPicked: (value) {
-                                      setState(() {
-                                        _pickupStartAt = value;
-                                      });
-                                    },
-                                  ),
-                            icon: const Icon(Icons.schedule),
-                          ),
-                        ),
-                        ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Pickup end'),
-                          subtitle: Text(formatDateTime(_pickupEndAt)),
-                          trailing: IconButton(
-                            onPressed: _busy
-                                ? null
-                                : () => _pickDateTime(
-                                    initial: _pickupEndAt,
-                                    onPicked: (value) {
-                                      setState(() {
-                                        _pickupEndAt = value;
-                                      });
-                                    },
-                                  ),
-                            icon: const Icon(Icons.schedule_send_outlined),
-                          ),
-                        ),
-                        ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Expires at'),
-                          subtitle: Text(formatDateTime(_expiresAt)),
-                          trailing: IconButton(
-                            onPressed: _busy
-                                ? null
-                                : () => _pickDateTime(
-                                    initial: _expiresAt,
-                                    onPicked: (value) {
-                                      setState(() {
-                                        _expiresAt = value;
-                                      });
-                                    },
-                                  ),
-                            icon: const Icon(Icons.hourglass_bottom_outlined),
-                          ),
-                        ),
-                        CheckboxListTile(
-                          contentPadding: EdgeInsets.zero,
-                          value: _disclaimerAccepted,
-                          onChanged: _busy
-                              ? null
-                              : (value) {
-                                  setState(() {
-                                    _disclaimerAccepted = value ?? false;
-                                  });
-                                },
-                          title: Text(s.reserveDisclaimer),
-                        ),
-                        if ((_riskHintMessage ?? '').isNotEmpty) ...[
                           const SizedBox(height: 8),
+                          DropdownButtonFormField<String>(
+                            initialValue: _selectedVenueId,
+                            items: venues
+                                .map(
+                                  (venue) => DropdownMenuItem(
+                                    value: venue.id,
+                                    child: Text(venue.name),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: _busy
+                                ? null
+                                : (value) {
+                                    setState(() {
+                                      _selectedVenueId = value;
+                                      _applyVenueDefaultPickupPoint(
+                                        venueId: value,
+                                        isZh: AppScope.of(
+                                          context,
+                                        ).localeController.isZhTw,
+                                      );
+                                    });
+                                  },
+                            decoration: const InputDecoration(
+                              labelText: 'Venue',
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: _pickupPointController,
+                            decoration: const InputDecoration(
+                              labelText: 'Pickup point (booth / gate)',
+                            ),
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return 'Pickup point is required.';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 8),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: OutlinedButton.icon(
+                              onPressed: _busy
+                                  ? null
+                                  : () => setState(() {
+                                      _applyVenueDefaultPickupPoint(
+                                        venueId: _selectedVenueId,
+                                        isZh: AppScope.of(
+                                          context,
+                                        ).localeController.isZhTw,
+                                        force: true,
+                                      );
+                                    }),
+                              icon: const Icon(Icons.place_outlined),
+                              label: Text(
+                                AppScope.of(context).localeController.isZhTw
+                                    ? '套用場館預設取餐點'
+                                    : 'Use venue default pickup point',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
                           Container(
                             width: double.infinity,
                             padding: const EdgeInsets.all(10),
@@ -1165,65 +1020,239 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
                                 color: const Color(0xFFE5C27A),
                               ),
                             ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Padding(
-                                  padding: EdgeInsets.only(top: 2, right: 6),
-                                  child: Icon(
-                                    Icons.warning_amber_rounded,
-                                    size: 16,
-                                    color: Color(0xFFB26A00),
-                                  ),
-                                ),
-                                Expanded(
-                                  child: Text(
-                                    _riskHintMessage!,
-                                    style: const TextStyle(
-                                      color: Color(0xFF7A4A00),
-                                    ),
-                                  ),
-                                ),
-                              ],
+                            child: Text(
+                              AppScope.of(context).localeController.isZhTw
+                                  ? '提醒：僅限公開展場/服務台交付，請勿要求私下移動地點。'
+                                  : 'Safety: use only public venue/service-desk handoff. Do not request private location changes.',
+                              style: const TextStyle(color: Color(0xFF7A4A00)),
                             ),
                           ),
-                        ],
-                        const SizedBox(height: 12),
-                        FilledButton.icon(
-                          onPressed: _busy || _tokenRevoked ? null : _submit,
-                          icon: _busy
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.save_outlined),
-                          label: Text(
-                            _isEditMode ? 'Update listing' : 'Post listing',
+                          const SizedBox(height: 12),
+                          Text(
+                            AppScope.of(context).localeController.isZhTw
+                                ? '2) 品項資訊'
+                                : '2) Item details',
+                            style: Theme.of(context).textTheme.titleSmall,
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 8),
+                          TextFormField(
+                            controller: _itemTypeController,
+                            decoration: const InputDecoration(
+                              labelText: 'Item type',
+                            ),
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return 'Item type is required.';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: _descriptionController,
+                            maxLines: 3,
+                            decoration: const InputDecoration(
+                              labelText: 'Simple description',
+                            ),
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return 'Description is required.';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: _quantityController,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: 'Quantity',
+                            ),
+                            validator: (value) {
+                              final parsed = int.tryParse(value ?? '');
+                              if (parsed == null || parsed <= 0) {
+                                return 'Enter a quantity of at least 1.';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: _displayNameController,
+                            decoration: const InputDecoration(
+                              labelText: 'Display name (optional)',
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            AppScope.of(context).localeController.isZhTw
+                                ? '3) 時段設定'
+                                : '3) Time windows',
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
+                          const SizedBox(height: 8),
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Pickup start'),
+                            subtitle: Text(formatDateTime(_pickupStartAt)),
+                            trailing: IconButton(
+                              onPressed: _busy
+                                  ? null
+                                  : () => _pickDateTime(
+                                      initial: _pickupStartAt,
+                                      onPicked: (value) {
+                                        setState(() {
+                                          _pickupStartAt = value;
+                                        });
+                                      },
+                                    ),
+                              icon: const Icon(Icons.schedule),
+                            ),
+                          ),
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Pickup end'),
+                            subtitle: Text(formatDateTime(_pickupEndAt)),
+                            trailing: IconButton(
+                              onPressed: _busy
+                                  ? null
+                                  : () => _pickDateTime(
+                                      initial: _pickupEndAt,
+                                      onPicked: (value) {
+                                        setState(() {
+                                          _pickupEndAt = value;
+                                        });
+                                      },
+                                    ),
+                              icon: const Icon(Icons.schedule_send_outlined),
+                            ),
+                          ),
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Expires at'),
+                            subtitle: Text(formatDateTime(_expiresAt)),
+                            trailing: IconButton(
+                              onPressed: _busy
+                                  ? null
+                                  : () => _pickDateTime(
+                                      initial: _expiresAt,
+                                      onPicked: (value) {
+                                        setState(() {
+                                          _expiresAt = value;
+                                        });
+                                      },
+                                    ),
+                              icon: const Icon(Icons.hourglass_bottom_outlined),
+                            ),
+                          ),
+                          CheckboxListTile(
+                            contentPadding: EdgeInsets.zero,
+                            value: _disclaimerAccepted,
+                            onChanged: _busy
+                                ? null
+                                : (value) {
+                                    setState(() {
+                                      _disclaimerAccepted = value ?? false;
+                                    });
+                                  },
+                            title: Text(s.reserveDisclaimer),
+                          ),
+                          if ((_riskHintMessage ?? '').isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFF7E8),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: const Color(0xFFE5C27A),
+                                ),
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Padding(
+                                    padding: EdgeInsets.only(top: 2, right: 6),
+                                    child: Icon(
+                                      Icons.warning_amber_rounded,
+                                      size: 16,
+                                      color: Color(0xFFB26A00),
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: Text(
+                                      _riskHintMessage!,
+                                      style: const TextStyle(
+                                        color: Color(0xFF7A4A00),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 12),
+                          FilledButton.icon(
+                            onPressed: _busy || _tokenRevoked ? null : _submit,
+                            icon: _busy
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.save_outlined),
+                            label: Text(
+                              _isEditMode ? 'Update listing' : 'Post listing',
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            AppScope.of(context).localeController.isZhTw
+                                ? 'FAQ：僅於公開展場服務台交付；若場內臨時改點，請重新更新列表說明。'
+                                : 'FAQ: handoff must stay at public venue desk; if pickup point changes, update listing details first.',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-              if (_isEditMode && _errorMessage == null) ...[
-                const SizedBox(height: 12),
-                _buildTokenControlsCard(),
-                const SizedBox(height: 12),
-                if ((_editToken ?? '').isNotEmpty)
-                  _ReservationAdminSection(
-                    listingId: widget.listingId!,
-                    token: _editToken!,
-                    onConfirmPickup: _confirmPickup,
-                    pickupCodeControllers: _pickupCodeControllers,
-                  ),
+                if (_isEditMode && _errorMessage == null) ...[
+                  const SizedBox(height: 12),
+                  _buildTokenControlsCard(),
+                  const SizedBox(height: 12),
+                  if ((_editToken ?? '').isNotEmpty)
+                    _ReservationAdminSection(
+                      listingId: widget.listingId!,
+                      token: _editToken!,
+                      onConfirmPickup: _confirmPickup,
+                      pickupCodeControllers: _pickupCodeControllers,
+                    ),
+                ],
               ],
-            ],
-          );
-        },
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _desktopFrame(BuildContext context, Widget child) {
+    final width = MediaQuery.sizeOf(context).width;
+    if (width < 1100) {
+      return child;
+    }
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1040),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: child,
+        ),
       ),
     );
   }
@@ -1343,6 +1372,38 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
                   }).toList(),
                 );
               },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTrustAndSafetyCard(BuildContext context) {
+    final isZh = AppScope.of(context).localeController.isZhTw;
+    return Card(
+      color: BoxmatchColors.warmSurfaceAlt,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.shield_outlined, color: BoxmatchColors.seed),
+                const SizedBox(width: 8),
+                Text(
+                  isZh ? '現場交付安全守則' : 'Public handoff safety rules',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              isZh
+                  ? '1) 僅限公開展場/服務台交付  2) 不接受私下移動地點  3) 發佈資訊請保持可核對'
+                  : '1) Public venue/service desk only  2) No private location changes  3) Keep listing info verifiable',
+              style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
         ),
@@ -1496,6 +1557,25 @@ class _ReservationAdminSectionState extends State<_ReservationAdminSection> {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            AppScope.of(context).localeController.isZhTw
+                                ? '快速篩選'
+                                : 'Quick filter',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                        Text(
+                          AppScope.of(context).localeController.isZhTw
+                              ? '總數 ${reservations.length}'
+                              : 'Total ${reservations.length}',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
@@ -1504,22 +1584,26 @@ class _ReservationAdminSectionState extends State<_ReservationAdminSection> {
                           selected: _filter == _ReservationFilter.all,
                           label: Text(
                             AppScope.of(context).localeController.isZhTw
-                                ? '全部'
-                                : 'All',
+                                ? '全部 (${reservations.length})'
+                                : 'All (${reservations.length})',
                           ),
                           onSelected: (_) =>
                               setState(() => _filter = _ReservationFilter.all),
                         ),
                         ChoiceChip(
                           selected: _filter == _ReservationFilter.pending,
-                          label: Text(s.pendingConfirm),
+                          label: Text(
+                            '${s.pendingConfirm} (${reservations.where((r) => r.status == ReservationStatus.reserved).length})',
+                          ),
                           onSelected: (_) => setState(
                             () => _filter = _ReservationFilter.pending,
                           ),
                         ),
                         ChoiceChip(
                           selected: _filter == _ReservationFilter.confirmed,
-                          label: Text(s.confirmedFilter),
+                          label: Text(
+                            '${s.confirmedFilter} (${reservations.where((r) => r.status == ReservationStatus.completed).length})',
+                          ),
                           onSelected: (_) => setState(
                             () => _filter = _ReservationFilter.confirmed,
                           ),

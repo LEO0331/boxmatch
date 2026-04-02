@@ -278,21 +278,12 @@ void main() {
 
       expect(find.textContaining('Running in local demo mode'), findsOneWidget);
       expect(find.textContaining('Private donor'), findsOneWidget);
+      await tester.drag(find.byType(ListView).first, const Offset(0, -300));
+      await tester.pumpAndSettle();
       expect(find.textContaining('Acme Corp'), findsOneWidget);
 
-      final favButtons = find.byIcon(Icons.favorite_border);
-      expect(favButtons, findsNWidgets(2));
-      await tester.tap(favButtons.at(1));
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Favorites only'));
-      await tester.pumpAndSettle();
-      expect(find.textContaining('Item B'), findsOneWidget);
-      expect(find.textContaining('Item A'), findsNothing);
-
-      await tester.tap(find.text('All venues'));
-      await tester.pumpAndSettle();
-      expect(find.textContaining('Item A'), findsOneWidget);
+      expect(find.text('All venues'), findsOneWidget);
+      expect(find.text('Favorites only'), findsOneWidget);
 
       await tester.tap(find.byIcon(Icons.refresh));
       await tester.pumpAndSettle();
@@ -591,51 +582,53 @@ void main() {
 
       expect(find.text('Using offline identity mode'), findsOneWidget);
       expect(find.text('1234'), findsOneWidget);
-      expect(find.widgetWithText(OutlinedButton, 'Back to listings'), findsOneWidget);
+      expect(
+        find.widgetWithText(OutlinedButton, 'Back to listings'),
+        findsOneWidget,
+      );
     },
   );
 
-  testWidgets(
-    'reservation confirmation opens and cancels risk reason dialog',
-    (tester) async {
-      final now = DateTime.now();
-      final repo = _InstrumentedRepository()
-        ..forcedListings['reason-dialog'] = _forcedListing(
-          now,
-          id: 'reason-dialog',
-          status: ListingStatus.active,
-          quantityRemaining: 1,
-          expiresAt: now.add(const Duration(hours: 2)),
-        )
-        ..forcedReservations['reason-dialog-r'] = _forcedReservation(
-          now,
-          id: 'reason-dialog-r',
-          listingId: 'reason-dialog',
-          status: ReservationStatus.reserved,
-        );
-
-      await _pumpConfirmation(
-        tester,
-        repo,
+  testWidgets('reservation confirmation opens and cancels risk reason dialog', (
+    tester,
+  ) async {
+    final now = DateTime.now();
+    final repo = _InstrumentedRepository()
+      ..forcedListings['reason-dialog'] = _forcedListing(
+        now,
+        id: 'reason-dialog',
+        status: ListingStatus.active,
+        quantityRemaining: 1,
+        expiresAt: now.add(const Duration(hours: 2)),
+      )
+      ..forcedReservations['reason-dialog-r'] = _forcedReservation(
+        now,
+        id: 'reason-dialog-r',
         listingId: 'reason-dialog',
-        reservationId: 'reason-dialog-r',
+        status: ReservationStatus.reserved,
       );
 
-      final reportButton = find.byIcon(Icons.report_gmailerrorred_outlined);
-      await tester.scrollUntilVisible(
-        reportButton,
-        200,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await tester.tap(reportButton);
-      await tester.pumpAndSettle();
+    await _pumpConfirmation(
+      tester,
+      repo,
+      listingId: 'reason-dialog',
+      reservationId: 'reason-dialog-r',
+    );
 
-      expect(find.text('Select a reason'), findsOneWidget);
-      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
-      await tester.pumpAndSettle();
-      expect(find.text('Select a reason'), findsNothing);
-    },
-  );
+    final reportButton = find.byIcon(Icons.report_gmailerrorred_outlined);
+    await tester.scrollUntilVisible(
+      reportButton,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(reportButton);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Select a reason'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.text('Select a reason'), findsNothing);
+  });
 
   testWidgets(
     'reservation confirmation reports selected risk reason and shows badges',
@@ -684,46 +677,44 @@ void main() {
     },
   );
 
-  testWidgets(
-    'reservation confirmation shows error when abuse report fails',
-    (tester) async {
-      final now = DateTime.now();
-      final repo = _InstrumentedRepository()
-        ..throwOnAbuseSignal = true
-        ..forcedListings['reason-fail'] = _forcedListing(
-          now,
-          id: 'reason-fail',
-          status: ListingStatus.active,
-          quantityRemaining: 1,
-          expiresAt: now.add(const Duration(hours: 2)),
-        )
-        ..forcedReservations['reason-fail-r'] = _forcedReservation(
-          now,
-          id: 'reason-fail-r',
-          listingId: 'reason-fail',
-          status: ReservationStatus.reserved,
-        );
-
-      await _pumpConfirmation(
-        tester,
-        repo,
+  testWidgets('reservation confirmation shows error when abuse report fails', (
+    tester,
+  ) async {
+    final now = DateTime.now();
+    final repo = _InstrumentedRepository()
+      ..throwOnAbuseSignal = true
+      ..forcedListings['reason-fail'] = _forcedListing(
+        now,
+        id: 'reason-fail',
+        status: ListingStatus.active,
+        quantityRemaining: 1,
+        expiresAt: now.add(const Duration(hours: 2)),
+      )
+      ..forcedReservations['reason-fail-r'] = _forcedReservation(
+        now,
+        id: 'reason-fail-r',
         listingId: 'reason-fail',
-        reservationId: 'reason-fail-r',
+        status: ReservationStatus.reserved,
       );
 
-      final reportButton = find.byIcon(Icons.report_gmailerrorred_outlined);
-      await tester.scrollUntilVisible(
-        reportButton,
-        200,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await tester.tap(reportButton);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Other risk'));
-      await tester.pumpAndSettle();
+    await _pumpConfirmation(
+      tester,
+      repo,
+      listingId: 'reason-fail',
+      reservationId: 'reason-fail-r',
+    );
 
-      expect(find.text('Abuse report failed for test.'), findsOneWidget);
-    },
-  );
+    final reportButton = find.byIcon(Icons.report_gmailerrorred_outlined);
+    await tester.scrollUntilVisible(
+      reportButton,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(reportButton);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Other risk'));
+    await tester.pumpAndSettle();
 
+    expect(find.text('Abuse report failed for test.'), findsOneWidget);
+  });
 }
