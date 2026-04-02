@@ -1,6 +1,9 @@
+import 'dart:convert';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/identity/firebase_recipient_identity_service.dart';
@@ -47,7 +50,19 @@ Future<AppDependencies> bootstrapApp() async {
       localeController: localeController,
       favoritesStore: favoritesStore,
     );
-  } catch (_) {
+  } catch (error, stackTrace) {
+    debugPrint(
+      jsonEncode({
+        'tag': 'BOXMATCH_ERROR',
+        'source': 'bootstrap.firebase_fallback',
+        'fatal': false,
+        'errorType': error.runtimeType.toString(),
+        'message': error.toString(),
+        'stackTrace': stackTrace.toString(),
+        'ts': DateTime.now().toIso8601String(),
+      }),
+    );
+
     final repository = InMemorySurplusRepository();
     await repository.ensureSeedData();
 
