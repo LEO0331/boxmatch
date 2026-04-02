@@ -1,0 +1,18 @@
+[
+  {
+    "aliasNormalized": "acme booth a",
+    "venueId": "taipei-nangang-exhibition-center-hall-1",
+    "active": true,
+    "reviewedBy": "ops-leo",
+    "reviewedAt": "2026-04-02T00:00:00.000Z",
+    "notes": "manual verification passed"
+  },
+  {
+    "aliasNormalized": "demo drinks co",
+    "venueId": "taipei-nangang-exhibition-center-hall-2",
+    "active": true,
+    "reviewedBy": "ops-leo",
+    "reviewedAt": "2026-04-02T00:00:00.000Z",
+    "notes": "event organizer confirmation"
+  }
+]

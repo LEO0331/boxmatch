@@ -93,8 +93,6 @@ Base URL (after deploy on Render):
 
 - Responses include `requestId` and `code` for tracing/debugging.
 - Server emits structured JSON logs (`http.request.completed` + endpoint failure events).
-- Reason taxonomy and log schema:
-  - [docs/ops/logging-taxonomy.md](/Users/Leo/Documents/boxmatch/docs/ops/logging-taxonomy.md)
 
 ## KPI Tracking
 
@@ -117,7 +115,7 @@ npm run export:kpi:7d
 npm run export:kpi:30d
 ```
 
-Exports are written to `/Users/Leo/Documents/boxmatch/reports`.
+Exports are written to `../Documents/boxmatch/reports`.
 
 ## Render environment variables needed
 
@@ -164,6 +162,29 @@ Rules:
 - `aliasNormalized` must be lowercase + trimmed and exactly match the alias enterprise uses in posting.
 - `venueId` must match posting venue.
 - `active=true` means verified badge is granted.
+
+### Seed template + one-click import
+
+You do **not** need to manually create the `verified_enterprises` collection first.
+Running the script will auto-create collection/documents.
+
+From repo root:
+
+```bash
+export FIREBASE_PROJECT_ID="boxmatch-e2224"
+export FIREBASE_CLIENT_EMAIL="..."
+export FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+
+cd ../boxmatch/server
+npm run seed:verified
+```
+
+Optional custom file path:
+
+```bash
+cd ../boxmatch/server
+node ../scripts/seed_verified_enterprises.js /absolute/path/to/your.seed.json
+```
 
 ### 3) Runtime behavior
 
