@@ -291,10 +291,17 @@ List<TemplatePerformanceSummary> computeTemplatePerformance({
 }
 
 class EnterpriseListingPage extends StatefulWidget {
-  const EnterpriseListingPage({super.key, this.listingId, this.token});
+  const EnterpriseListingPage({
+    super.key,
+    this.listingId,
+    this.token,
+    this.templatePerformanceLoader,
+  });
 
   final String? listingId;
   final String? token;
+  final Future<List<TemplatePerformanceSummary>> Function()?
+  templatePerformanceLoader;
 
   @override
   State<EnterpriseListingPage> createState() => _EnterpriseListingPageState();
@@ -511,6 +518,12 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
   }
 
   Future<List<_TemplatePerformance>> _loadTemplatePerformance() async {
+    final injectedLoader = widget.templatePerformanceLoader;
+    if (injectedLoader != null) {
+      final computed = await injectedLoader();
+      return _mapTemplatePerformanceSummaries(computed);
+    }
+
     if (!AppScope.of(context).usingFirebase) {
       return const <_TemplatePerformance>[];
     }
@@ -537,26 +550,32 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
         listingToTemplate: listingToTemplate,
         reservations: reservationsSnap.docs.map((doc) => doc.data()),
       );
-      return computed.map((item) {
-        final template = _quickTemplates.firstWhere(
-          (t) => t.id == item.templateId,
-          orElse: () => _quickTemplates.first,
-        );
-        return _TemplatePerformance(
-          templateId: item.templateId,
-          templateName: AppScope.of(context).localeController.isZhTw
-              ? template.nameZh
-              : template.nameEn,
-          totalReservations: item.totalReservations,
-          completedReservations: item.completedReservations,
-          cancelledReservations: item.cancelledReservations,
-          completedRate: item.completedRate,
-          cancelledRate: item.cancelledRate,
-        );
-      }).toList();
+      return _mapTemplatePerformanceSummaries(computed);
     } catch (_) {
       return const <_TemplatePerformance>[];
     }
+  }
+
+  List<_TemplatePerformance> _mapTemplatePerformanceSummaries(
+    List<TemplatePerformanceSummary> computed,
+  ) {
+    return computed.map((item) {
+      final template = _quickTemplates.firstWhere(
+        (t) => t.id == item.templateId,
+        orElse: () => _quickTemplates.first,
+      );
+      return _TemplatePerformance(
+        templateId: item.templateId,
+        templateName: AppScope.of(context).localeController.isZhTw
+            ? template.nameZh
+            : template.nameEn,
+        totalReservations: item.totalReservations,
+        completedReservations: item.completedReservations,
+        cancelledReservations: item.cancelledReservations,
+        completedRate: item.completedRate,
+        cancelledRate: item.cancelledRate,
+      );
+    }).toList();
   }
 
   Future<void> _submit() async {
