@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 
 import '../i18n/app_strings.dart';
@@ -35,16 +36,20 @@ class AppShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final index = _currentIndex();
     final isWide = MediaQuery.sizeOf(context).width >= 900;
+    final useRail = kIsWeb || isWide;
     final s = AppStrings.of(context);
 
-    if (isWide) {
+    if (useRail) {
+      final isCompactRail = MediaQuery.sizeOf(context).width < 1200;
       return Scaffold(
         body: Row(
           children: [
             NavigationRail(
               selectedIndex: index,
               onDestinationSelected: (next) => _navigate(context, next),
-              labelType: NavigationRailLabelType.all,
+              labelType: isCompactRail
+                  ? NavigationRailLabelType.selected
+                  : NavigationRailLabelType.all,
               destinations: [
                 NavigationRailDestination(
                   icon: const Icon(Icons.list_alt_outlined),

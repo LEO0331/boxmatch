@@ -20,7 +20,8 @@ class ListingsPage extends StatefulWidget {
 
 class _ListingsPageState extends State<ListingsPage> {
   Timer? _reconcileTimer;
-  bool _favoritesOnly = false;
+  static bool _favoritesOnlyMemory = false;
+  bool _favoritesOnly = _favoritesOnlyMemory;
 
   @override
   void initState() {
@@ -47,6 +48,13 @@ class _ListingsPageState extends State<ListingsPage> {
     if (mounted) {
       setState(() {});
     }
+  }
+
+  void _setFavoritesOnly(bool value) {
+    setState(() {
+      _favoritesOnly = value;
+      _favoritesOnlyMemory = value;
+    });
   }
 
   @override
@@ -131,90 +139,131 @@ class _ListingsPageState extends State<ListingsPage> {
                   }
 
                   if (listings.isEmpty) {
-                    return ListView(
-                      padding: const EdgeInsets.all(24),
+                    return Column(
                       children: [
-                        const SizedBox(height: 48),
-                        const Icon(Icons.lunch_dining_outlined, size: 48),
-                        const SizedBox(height: 12),
-                        Text(s.noActiveListings, textAlign: TextAlign.center),
+                        if (!dependencies.usingFirebase)
+                          Card(
+                            margin: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Text(s.localDemoModeNotice),
+                            ),
+                          ),
+                        Card(
+                          margin: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(s.platformDisclaimer),
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    ChoiceChip(
+                                      selected: !_favoritesOnly,
+                                      onSelected: (_) => _setFavoritesOnly(false),
+                                      label: Text(
+                                        AppScope.of(
+                                              context,
+                                            ).localeController.isZhTw
+                                            ? '全部場館'
+                                            : 'All venues',
+                                      ),
+                                    ),
+                                    ChoiceChip(
+                                      selected: _favoritesOnly,
+                                      onSelected: (_) => _setFavoritesOnly(true),
+                                      label: Text(
+                                        AppScope.of(
+                                              context,
+                                            ).localeController.isZhTw
+                                            ? '僅收藏場館'
+                                            : 'Favorites only',
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: ListView(
+                            padding: const EdgeInsets.all(24),
+                            children: [
+                              const SizedBox(height: 48),
+                              const Icon(Icons.lunch_dining_outlined, size: 48),
+                              const SizedBox(height: 12),
+                              Text(
+                                s.noActiveListings,
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
                     );
                   }
 
-                  return ListView.builder(
-                    itemCount: listings.length + 1,
-                    itemBuilder: (context, index) {
-                      if (index == 0) {
-                        return Column(
-                          children: [
-                            if (!dependencies.usingFirebase)
-                              Card(
-                                margin: const EdgeInsets.fromLTRB(
-                                  12,
-                                  12,
-                                  12,
-                                  8,
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(12),
-                                  child: Text(s.localDemoModeNotice),
-                                ),
-                              ),
-                            Card(
-                              margin: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                              child: Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(s.platformDisclaimer),
-                                    const SizedBox(height: 8),
-                                    Wrap(
-                                      spacing: 8,
-                                      runSpacing: 8,
-                                      children: [
-                                        ChoiceChip(
-                                          selected: !_favoritesOnly,
-                                          onSelected: (_) {
-                                            setState(() {
-                                              _favoritesOnly = false;
-                                            });
-                                          },
-                                          label: Text(
-                                            AppScope.of(
-                                                  context,
-                                                ).localeController.isZhTw
-                                                ? '全部場館'
-                                                : 'All venues',
-                                          ),
-                                        ),
-                                        ChoiceChip(
-                                          selected: _favoritesOnly,
-                                          onSelected: (_) {
-                                            setState(() {
-                                              _favoritesOnly = true;
-                                            });
-                                          },
-                                          label: Text(
-                                            AppScope.of(
-                                                  context,
-                                                ).localeController.isZhTw
-                                                ? '僅收藏場館'
-                                                : 'Favorites only',
-                                          ),
-                                        ),
-                                      ],
+                  return Column(
+                    children: [
+                      if (!dependencies.usingFirebase)
+                        Card(
+                          margin: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Text(s.localDemoModeNotice),
+                          ),
+                        ),
+                      Card(
+                        margin: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(s.platformDisclaimer),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  ChoiceChip(
+                                    selected: !_favoritesOnly,
+                                    onSelected: (_) => _setFavoritesOnly(false),
+                                    label: Text(
+                                      AppScope.of(
+                                            context,
+                                          ).localeController.isZhTw
+                                          ? '全部場館'
+                                          : 'All venues',
                                     ),
-                                  ],
-                                ),
+                                  ),
+                                  ChoiceChip(
+                                    selected: _favoritesOnly,
+                                    onSelected: (_) => _setFavoritesOnly(true),
+                                    label: Text(
+                                      AppScope.of(
+                                            context,
+                                          ).localeController.isZhTw
+                                          ? '僅收藏場館'
+                                          : 'Favorites only',
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ),
-                          ],
-                        );
-                      }
-
-                      final listing = listings[index - 1];
+                            ],
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: ListView.builder(
+                          itemCount: listings.length,
+                          itemBuilder: (context, index) {
+                            final listing = listings[index];
                       final venue = venueMap[listing.venueId];
                       final donorName =
                           listing.displayNameOptional?.trim().isNotEmpty == true
@@ -224,42 +273,47 @@ class _ListingsPageState extends State<ListingsPage> {
                         listing.venueId,
                       );
 
-                      return Card(
-                        child: ListTile(
-                          title: Text(
-                            '${listing.itemType} · ${listing.quantityRemaining} left',
-                          ),
-                          subtitle: Text(
-                            '${venue?.name ?? 'Venue'}\n'
-                            'Pickup: ${formatDateTime(listing.pickupStartAt)} - ${formatDateTime(listing.pickupEndAt)}\n'
-                            'By: $donorName',
-                          ),
-                          isThreeLine: true,
-                          trailing: SizedBox(
-                            width: 88,
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.end,
-                              children: [
-                                IconButton(
-                                  icon: Icon(
-                                    isFavorite
-                                        ? Icons.favorite
-                                        : Icons.favorite_border,
-                                    color: isFavorite
-                                        ? Theme.of(context).colorScheme.error
-                                        : null,
-                                  ),
-                                  onPressed: () => favoritesStore
-                                      .toggleFavorite(listing.venueId),
+                            return Card(
+                              child: ListTile(
+                                title: Text(
+                                  '${listing.itemType} · ${listing.quantityRemaining} left',
                                 ),
-                                const Icon(Icons.chevron_right),
-                              ],
-                            ),
-                          ),
-                          onTap: () => context.go('/listing/${listing.id}'),
+                                subtitle: Text(
+                                  '${venue?.name ?? 'Venue'}\n'
+                                  'Pickup: ${formatDateTime(listing.pickupStartAt)} - ${formatDateTime(listing.pickupEndAt)}\n'
+                                  'By: $donorName',
+                                ),
+                                isThreeLine: true,
+                                trailing: SizedBox(
+                                  width: 88,
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      IconButton(
+                                        icon: Icon(
+                                          isFavorite
+                                              ? Icons.favorite
+                                              : Icons.favorite_border,
+                                          color: isFavorite
+                                              ? Theme.of(
+                                                  context,
+                                                ).colorScheme.error
+                                              : null,
+                                        ),
+                                        onPressed: () => favoritesStore
+                                            .toggleFavorite(listing.venueId),
+                                      ),
+                                      const Icon(Icons.chevron_right),
+                                    ],
+                                  ),
+                                ),
+                                onTap: () => context.go('/listing/${listing.id}'),
+                              ),
+                            );
+                          },
                         ),
-                      );
-                    },
+                      ),
+                    ],
                   );
                 },
               );
