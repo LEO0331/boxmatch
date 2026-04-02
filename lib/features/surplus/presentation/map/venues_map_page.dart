@@ -55,7 +55,7 @@ class VenuesMapPage extends StatefulWidget {
 }
 
 class _VenuesMapPageState extends State<VenuesMapPage> {
-  int _providerIndex = 0;
+  int _providerIndex = 1;
   int _recentErrorCount = 0;
   DateTime? _lastErrorAt;
   DateTime? _lastSwitchAt;
@@ -181,6 +181,8 @@ class _VenuesMapPageState extends State<VenuesMapPage> {
                               urlTemplate: provider.urlTemplate,
                               fallbackUrl: provider.fallbackUrl,
                               subdomains: provider.subdomains,
+                              retinaMode:
+                                  MediaQuery.devicePixelRatioOf(context) > 1.0,
                               userAgentPackageName: 'com.example.boxmatch',
                               tileProvider: CancellableNetworkTileProvider(),
                               errorTileCallback: (tile, error, stackTrace) =>
@@ -244,11 +246,17 @@ class _VenuesMapPageState extends State<VenuesMapPage> {
                               title: Text(venue.name),
                               subtitle: Text(venue.address),
                               trailing: SizedBox(
-                                width: 120,
+                                width: 160,
                                 child: Row(
                                   mainAxisAlignment: MainAxisAlignment.end,
                                   children: [
-                                    Text(s.activeCount(count)),
+                                    Expanded(
+                                      child: Text(
+                                        s.activeCount(count),
+                                        textAlign: TextAlign.end,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
                                     IconButton(
                                       onPressed: () => favoritesStore
                                           .toggleFavorite(venue.id),
