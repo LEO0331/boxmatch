@@ -1,0 +1,523 @@
+{
+  "info": {
+    "name": "Boxmatch API",
+    "_postman_id": "c7d6cf6f-9ef6-4a4a-bcc4-2ab7d5f7d105",
+    "description": "Boxmatch backend API test collection. Includes enterprise + recipient full flow with variable chaining.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const now = new Date();",
+          "const start = new Date(now.getTime() + 20 * 60 * 1000);",
+          "const end = new Date(now.getTime() + 110 * 60 * 1000);",
+          "const expire = new Date(now.getTime() + 150 * 60 * 1000);",
+          "pm.collectionVariables.set('pickupStartAt', start.toISOString());",
+          "pm.collectionVariables.set('pickupEndAt', end.toISOString());",
+          "pm.collectionVariables.set('expiresAt', expire.toISOString());",
+          "if (!pm.collectionVariables.get('claimerUid')) {",
+          "  pm.collectionVariables.set('claimerUid', `postman_${Date.now()}`);",
+          "}",
+          "if (!pm.collectionVariables.get('idempotencyKey')) {",
+          "  pm.collectionVariables.set('idempotencyKey', `reserve_${Date.now()}`);",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Enterprise - Create listing",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "pm.test('create returns listingId + token', function () {",
+              "  pm.expect(json.ok).to.eql(true);",
+              "  pm.expect(json.listingId).to.be.a('string').and.not.empty;",
+              "  pm.expect(json.token).to.be.a('string').and.not.empty;",
+              "});",
+              "pm.collectionVariables.set('listingId', json.listingId);",
+              "pm.collectionVariables.set('token', json.token);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "content-type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"data\": {\n    \"venueId\": \"{{venueId}}\",\n    \"pickupPointText\": \"Postman Booth A\",\n    \"itemType\": \"Lunchbox\",\n    \"description\": \"Postman flow listing\",\n    \"quantityTotal\": 3,\n    \"pickupStartAt\": \"{{pickupStartAt}}\",\n    \"pickupEndAt\": \"{{pickupEndAt}}\",\n    \"expiresAt\": \"{{expiresAt}}\",\n    \"displayNameOptional\": \"Postman Enterprise\",\n    \"visibility\": \"minimal\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/enterprise/listings/create",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "enterprise",
+            "listings",
+            "create"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Enterprise - Validate token",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "pm.test('token valid', function () {",
+              "  pm.expect(json.ok).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "content-type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"token\": \"{{token}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/enterprise/listings/{{listingId}}/validate-token",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "enterprise",
+            "listings",
+            "{{listingId}}",
+            "validate-token"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Recipient - Reserve listing",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "pm.test('reserve returns reservation', function () {",
+              "  pm.expect(json.ok).to.eql(true);",
+              "  pm.expect(json.reservation).to.be.an('object');",
+              "  pm.expect(json.reservation.id).to.be.a('string').and.not.empty;",
+              "});",
+              "pm.collectionVariables.set('reservationId', json.reservation.id);",
+              "pm.collectionVariables.set('pickupCode', json.reservation.pickupCode);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "content-type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"claimerUid\": \"{{claimerUid}}\",\n  \"qty\": 1,\n  \"disclaimerAccepted\": true,\n  \"idempotencyKey\": \"{{idempotencyKey}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/recipient/listings/{{listingId}}/reserve",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "recipient",
+            "listings",
+            "{{listingId}}",
+            "reserve"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Recipient - Reserve replay (same idempotency key)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "pm.test('idempotent replay is true', function () {",
+              "  pm.expect(json.ok).to.eql(true);",
+              "  pm.expect(json.idempotentReplay).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "content-type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"claimerUid\": \"{{claimerUid}}\",\n  \"qty\": 1,\n  \"disclaimerAccepted\": true,\n  \"idempotencyKey\": \"{{idempotencyKey}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/recipient/listings/{{listingId}}/reserve",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "recipient",
+            "listings",
+            "{{listingId}}",
+            "reserve"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Enterprise - List reservations",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "pm.test('list response ok', function () {",
+              "  pm.expect(json.ok).to.eql(true);",
+              "  pm.expect(json.reservations).to.be.an('array');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "content-type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"token\": \"{{token}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/enterprise/listings/{{listingId}}/reservations",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "enterprise",
+            "listings",
+            "{{listingId}}",
+            "reservations"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Enterprise - Update listing",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "pm.test('update ok', function () {",
+              "  pm.expect(json.ok).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "content-type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"token\": \"{{token}}\",\n  \"data\": {\n    \"pickupPointText\": \"Postman Booth Updated\",\n    \"description\": \"Updated by Postman\",\n    \"quantityTotal\": 4,\n    \"pickupStartAt\": \"{{pickupStartAt}}\",\n    \"pickupEndAt\": \"{{pickupEndAt}}\",\n    \"expiresAt\": \"{{expiresAt}}\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/enterprise/listings/{{listingId}}/update",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "enterprise",
+            "listings",
+            "{{listingId}}",
+            "update"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Enterprise - Confirm pickup",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "pm.test('confirm ok', function () {",
+              "  pm.expect(json.ok).to.eql(true);",
+              "  pm.expect(json.confirmed).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "content-type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"token\": \"{{token}}\",\n  \"reservationId\": \"{{reservationId}}\",\n  \"pickupCode\": \"{{pickupCode}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/enterprise/listings/{{listingId}}/confirm-pickup",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "enterprise",
+            "listings",
+            "{{listingId}}",
+            "confirm-pickup"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Enterprise - Rotate token",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "pm.test('rotate returns next token', function () {",
+              "  pm.expect(json.ok).to.eql(true);",
+              "  pm.expect(json.token).to.be.a('string').and.not.empty;",
+              "});",
+              "pm.collectionVariables.set('token', json.token);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "content-type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"token\": \"{{token}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/enterprise/listings/{{listingId}}/rotate-token",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "enterprise",
+            "listings",
+            "{{listingId}}",
+            "rotate-token"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Enterprise - Revoke token",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "pm.test('revoke ok', function () {",
+              "  pm.expect(json.ok).to.eql(true);",
+              "  pm.expect(json.revoked).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "content-type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"token\": \"{{token}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/enterprise/listings/{{listingId}}/revoke-token",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "enterprise",
+            "listings",
+            "{{listingId}}",
+            "revoke-token"
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://boxmatch-api.onrender.com"
+    },
+    {
+      "key": "venueId",
+      "value": "taipei-nangang-exhibition-center-hall-1"
+    },
+    {
+      "key": "listingId",
+      "value": ""
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "claimerUid",
+      "value": ""
+    },
+    {
+      "key": "idempotencyKey",
+      "value": ""
+    },
+    {
+      "key": "reservationId",
+      "value": ""
+    },
+    {
+      "key": "pickupCode",
+      "value": ""
+    },
+    {
+      "key": "pickupStartAt",
+      "value": ""
+    },
+    {
+      "key": "pickupEndAt",
+      "value": ""
+    },
+    {
+      "key": "expiresAt",
+      "value": ""
+    }
+  ]
+}

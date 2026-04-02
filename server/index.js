@@ -226,6 +226,16 @@ function toIso(value) {
   return d.toISOString();
 }
 
+function toMillis(value) {
+  if (!value) return 0;
+  if (value instanceof Date) return value.getTime();
+  if (typeof value.toDate === 'function') return value.toDate().getTime();
+  if (typeof value === 'number') return value;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return 0;
+  return d.getTime();
+}
+
 function parseDateField(input, fieldName, errors) {
   if (input == null) return undefined;
   const d = new Date(input);
@@ -699,22 +709,25 @@ app.post('/enterprise/listings/:listingId/reservations', async (req, res) => {
     const snap = await db
       .collection(RESERVATIONS)
       .where('listingId', '==', listingId)
-      .orderBy('createdAt', 'desc')
       .get();
 
-    const reservations = snap.docs.map((doc) => {
-      const data = doc.data() || {};
-      return {
-        id: doc.id,
-        listingId: data.listingId || listingId,
-        claimerUid: data.claimerUid || '',
-        qty: Number(data.qty || 0),
-        pickupCode: data.pickupCode || '',
-        status: data.status || 'reserved',
-        createdAt: toIso(data.createdAt),
-        expiresAt: toIso(data.expiresAt)
-      };
-    });
+    const reservations = snap.docs
+      .map((doc) => {
+        const data = doc.data() || {};
+        return {
+          id: doc.id,
+          listingId: data.listingId || listingId,
+          claimerUid: data.claimerUid || '',
+          qty: Number(data.qty || 0),
+          pickupCode: data.pickupCode || '',
+          status: data.status || 'reserved',
+          createdAt: toIso(data.createdAt),
+          expiresAt: toIso(data.expiresAt),
+          _createdAtMs: toMillis(data.createdAt)
+        };
+      })
+      .sort((a, b) => b._createdAtMs - a._createdAtMs)
+      .map(({ _createdAtMs, ...item }) => item);
 
     return res.json({ ok: true, code: 'LIST_RESERVATIONS_SUCCESS', listingId, reservations });
   } catch (error) {
