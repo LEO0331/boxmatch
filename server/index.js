@@ -781,14 +781,14 @@ app.get('/health', async (_req, res) => {
 });
 
 app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
+  const recipientAuthMode = String(req.recipientAuthMode || 'legacy');
+  const recipientDailyLimit = resolveRecipientDailyLimit(recipientAuthMode);
   try {
     const listingId = req.params.listingId;
     const claimerUid = String(req.recipientUid || '').trim();
-    const recipientAuthMode = String(req.recipientAuthMode || 'legacy');
     const qty = Number(req.body?.qty || 0);
     const disclaimerAccepted = req.body?.disclaimerAccepted === true;
     const idempotencyKey = String(req.body?.idempotencyKey || '').trim();
-    const recipientDailyLimit = resolveRecipientDailyLimit(recipientAuthMode);
 
     if (!Number.isInteger(qty) || qty <= 0) {
       return errorResponse(
@@ -1594,7 +1594,36 @@ app.post('/enterprise/listings/:listingId/confirm-pickup', async (req, res) => {
   }
 });
 
-const port = Number(process.env.PORT || 8080);
-app.listen(port, () => {
-  console.log(`boxmatch server listening on ${port}`);
-});
+function startServer(port = Number(process.env.PORT || 8080)) {
+  return app.listen(port, () => {
+    console.log(`boxmatch server listening on ${port}`);
+  });
+}
+
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = {
+  app,
+  startServer,
+  __test: {
+    asNumber,
+    estimateKgFromItemType,
+    normalizeAlias,
+    normalizeText,
+    parseBearerToken,
+    parseDateField,
+    resolveListingStatus,
+    resolveRecipientDailyLimit,
+    safeEqual,
+    sha256,
+    startOfDay,
+    endOfDay,
+    toIso,
+    toMillis,
+    utcDayKey,
+    validateAndBuildCreate,
+    validateAndBuildUpdate
+  }
+};
