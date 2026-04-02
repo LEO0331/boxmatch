@@ -13,6 +13,8 @@ RESERVE_COUNT="${SEED_RESERVE_COUNT:-3}"
 CONFIRM_COUNT="${SEED_CONFIRM_COUNT:-1}"
 CLAIMER_PREFIX="${SEED_CLAIMER_PREFIX:-seed_user}"
 DISPLAY_NAME="${SEED_DISPLAY_NAME:-POC Enterprise}"
+WEB_BASE_URL="${BOXMATCH_WEB_BASE_URL:-https://leo0331.github.io/boxmatch/#}"
+WEB_BASE_URL="${WEB_BASE_URL%/}"
 
 if ! [[ "$LISTING_COUNT" =~ ^[0-9]+$ ]] || ! [[ "$RESERVE_COUNT" =~ ^[0-9]+$ ]] || ! [[ "$CONFIRM_COUNT" =~ ^[0-9]+$ ]]; then
   echo "SEED_LISTING_COUNT / SEED_RESERVE_COUNT / SEED_CONFIRM_COUNT must be integers" >&2
@@ -127,5 +129,8 @@ echo "idx | listingId | token | reservationId | reservationStatus | venueId"
 echo "----|-----------|-------|---------------|-------------------|--------"
 awk -F'\t' '{printf "%s | %s | %s | %s | %s | %s\n", $1,$2,$3,$4,$5,$6}' "$SUMMARY_FILE"
 echo
-echo "Tip: use listingId + token to open enterprise edit:"
-echo "  /enterprise/edit/<listingId>?token=<token>"
+echo "Enterprise edit URLs:"
+while IFS=$'\t' read -r idx listing_id token reservation_id reservation_status venue_id; do
+  edit_url="${WEB_BASE_URL}/enterprise/edit/${listing_id}?token=${token}"
+  echo "[$idx] $edit_url"
+done < "$SUMMARY_FILE"

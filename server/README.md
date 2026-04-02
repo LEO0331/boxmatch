@@ -246,6 +246,39 @@ cd ../boxmatch/server
 node ../scripts/seed_verified_enterprises.js /absolute/path/to/your.seed.json
 ```
 
+### Demo seed (6 enterprise edit links)
+
+Use this to quickly create demo listings and print clickable enterprise edit URLs.
+
+```bash
+cd ../boxmatch/server
+export BOXMATCH_API_BASE_URL="https://boxmatch-api.onrender.com"
+npm run seed:demo-links
+```
+
+Optional knobs:
+
+- `SEED_LISTING_COUNT` (default `6`)
+- `SEED_RESERVE_COUNT` (default `3`)
+- `SEED_CONFIRM_COUNT` (default `1`)
+- `BOXMATCH_WEB_BASE_URL` (default `https://leo0331.github.io/boxmatch/#`)
+
+### Backend test suite
+
+Run backend unit + API integration tests:
+
+```bash
+cd ../boxmatch/server
+npm test
+```
+
+Current coverage focus:
+
+- create listing validation + unverified daily limit
+- enterprise token flow: validate/update/rotate/revoke
+- recipient flow: reserve idempotency, overbooking guard, daily limit, list, cancel
+- pickup confirmation status transition
+
 ### 3) Runtime behavior
 
 - Verified match:

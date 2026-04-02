@@ -9,13 +9,19 @@
     "lint": "node --check index.js",
     "start": "node index.js",
     "dev": "node index.js",
+    "test": "jest --runInBand",
     "export:kpi:7d": "node ../scripts/export_kpi_csv.js 7",
     "export:kpi:30d": "node ../scripts/export_kpi_csv.js 30",
-    "seed:verified": "node ../scripts/seed_verified_enterprises.js"
+    "seed:verified": "node ../scripts/seed_verified_enterprises.js",
+    "seed:demo-links": "bash ../scripts/seed_test_data.sh"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "firebase-admin": "^12.7.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.1.1"
   }
 }

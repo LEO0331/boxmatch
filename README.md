@@ -2,6 +2,7 @@
 
 ![Coverage Gate](https://img.shields.io/badge/Coverage%20Gate-80%25%20minimum-blue)
 [![Pages Deploy](https://github.com/LEO0331/boxmatch/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/LEO0331/boxmatch/actions/workflows/deploy-pages.yml)
+[![Backend CI](https://github.com/LEO0331/boxmatch/actions/workflows/backend-ci.yml/badge.svg)](https://github.com/LEO0331/boxmatch/actions/workflows/backend-ci.yml)
 
 Boxmatch is a lightweight surplus-food matching app for exhibitions.
 Enterprises can post leftover lunchboxes or drinks, and nearby users can reserve for pickup.
@@ -93,6 +94,21 @@ flutter test
 - CI workflow: `.github/workflows/flutter-ci.yml`
 - Rule: overall coverage is calculated from `coverage/lcov.info`.
 - Fail condition: CI fails when overall coverage is **below 80%**.
+
+### Backend PR Gate (Required)
+
+- CI workflow: `.github/workflows/backend-ci.yml`
+- Job: `Backend Tests (Jest)`
+- Fail condition: any backend lint/test failure blocks this check.
+
+To enforce merge blocking in GitHub:
+
+1. `Settings` -> `Rules` -> create/edit ruleset for `main`
+2. Enable `Require status checks to pass`
+3. Add required checks:
+   - `test-and-coverage` (from Flutter CI)
+   - `Backend Tests (Jest)` (from Backend CI)
+4. Keep `Require branches to be up to date before merging` enabled
 
 ## Release Smoke + Gate
 
