@@ -49,6 +49,7 @@ class Listing {
     required this.pickupEndAt,
     required this.expiresAt,
     required this.displayNameOptional,
+    this.enterpriseVerified = false,
     required this.visibility,
     required this.status,
     required this.editTokenHash,
@@ -69,6 +70,7 @@ class Listing {
   final DateTime pickupEndAt;
   final DateTime expiresAt;
   final String? displayNameOptional;
+  final bool enterpriseVerified;
   final ListingVisibility visibility;
   final ListingStatus status;
   final String editTokenHash;
@@ -110,6 +112,7 @@ class Listing {
     DateTime? pickupEndAt,
     DateTime? expiresAt,
     String? displayNameOptional,
+    bool? enterpriseVerified,
     ListingVisibility? visibility,
     ListingStatus? status,
     String? editTokenHash,
@@ -130,6 +133,7 @@ class Listing {
       pickupEndAt: pickupEndAt ?? this.pickupEndAt,
       expiresAt: expiresAt ?? this.expiresAt,
       displayNameOptional: displayNameOptional ?? this.displayNameOptional,
+      enterpriseVerified: enterpriseVerified ?? this.enterpriseVerified,
       visibility: visibility ?? this.visibility,
       status: status ?? this.status,
       editTokenHash: editTokenHash ?? this.editTokenHash,
@@ -152,6 +156,7 @@ class Listing {
       'pickupEndAt': pickupEndAt,
       'expiresAt': expiresAt,
       'displayNameOptional': displayNameOptional,
+      'enterpriseVerified': enterpriseVerified,
       'visibility': visibility.name,
       'status': status.name,
       'editTokenHash': editTokenHash,
@@ -175,6 +180,7 @@ class Listing {
       pickupEndAt: _readDateTime(map['pickupEndAt']),
       expiresAt: _readDateTime(map['expiresAt']),
       displayNameOptional: map['displayNameOptional'] as String?,
+      enterpriseVerified: map['enterpriseVerified'] == true,
       visibility: ListingVisibilityX.fromName(map['visibility'] as String?),
       status: ListingStatusX.fromName(map['status'] as String?),
       editTokenHash: map['editTokenHash'] as String? ?? '',

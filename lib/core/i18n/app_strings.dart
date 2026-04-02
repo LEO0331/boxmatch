@@ -44,8 +44,7 @@ class AppStrings {
   String get listingDetailTitle => _zh ? '物件詳情' : 'Listing details';
   String get myReservationsTitle => _zh ? '我的預約' : 'My Reservations';
   String get myReservationsCta => _zh ? '我的預約' : 'My reservations';
-  String get noMyReservations =>
-      _zh ? '目前尚無預約紀錄。' : 'No reservations yet.';
+  String get noMyReservations => _zh ? '目前尚無預約紀錄。' : 'No reservations yet.';
   String get cancelReservation => _zh ? '取消預約' : 'Cancel reservation';
   String get reservationCancelled => _zh ? '預約已取消。' : 'Reservation cancelled.';
   String get listingNotFound => _zh ? '找不到此物件。' : 'Listing not found.';
@@ -54,6 +53,9 @@ class AppStrings {
   String get reserveDisclaimer => _zh
       ? '本平台僅提供捐贈者與領取者媒合，不保證食品安全。'
       : 'This app only matches donors and recipients. Boxmatch does not guarantee food safety.';
+  String get publicPickupOnlyNotice => _zh
+      ? '安全提醒：僅限公開展場或服務台交付，不接受私下移動地點。'
+      : 'Safety note: pickup must happen at public venue/service desk only. Do not move to private locations.';
   String get reserveDisclaimerAccept =>
       _zh ? '我已了解並同意此聲明。' : 'I understand and accept this disclaimer.';
   String get cancel => _zh ? '取消' : 'Cancel';
@@ -68,6 +70,9 @@ class AppStrings {
   String get reservationNotFound => _zh ? '找不到此預約。' : 'Reservation not found.';
   String get offlineIdentityMode =>
       _zh ? '使用離線身份模式' : 'Using offline identity mode';
+  String get reportSafetyConcern => _zh ? '回報風險事件' : 'Report safety concern';
+  String get abuseReported => _zh ? '已送出風險回報。' : 'Safety report submitted.';
+  String get verifiedEnterprise => _zh ? '已驗證企業' : 'Verified enterprise';
   String get pendingConfirm => _zh ? '待確認' : 'Pending';
   String get confirmedFilter => _zh ? '已確認' : 'Confirmed';
   String get showPickupCodeHelp => _zh

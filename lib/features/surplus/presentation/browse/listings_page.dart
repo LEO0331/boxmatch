@@ -57,6 +57,91 @@ class _ListingsPageState extends State<ListingsPage> {
     });
   }
 
+  Widget _buildModeNotice(AppStrings s) {
+    return Card(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+      color: const Color(0xFFF2F8EE),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Text(
+          s.localDemoModeNotice,
+          style: const TextStyle(color: Color(0xFF2E5233)),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFilterCard(BuildContext context, AppStrings s) {
+    final isZh = AppScope.of(context).localeController.isZhTw;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        gradient: const LinearGradient(
+          colors: [Color(0xFFEAF7EC), Color(0xFFFFF3DE)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        border: Border.all(color: const Color(0xFFB8D6B8)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(
+                  Icons.eco_outlined,
+                  size: 18,
+                  color: Color(0xFF2D6A4F),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    s.platformDisclaimer,
+                    style: const TextStyle(color: Color(0xFF2D4A2F)),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                ChoiceChip(
+                  selected: !_favoritesOnly,
+                  onSelected: (_) => _setFavoritesOnly(false),
+                  selectedColor: const Color(0xFF2D6A4F),
+                  labelStyle: TextStyle(
+                    color: !_favoritesOnly
+                        ? Colors.white
+                        : const Color(0xFF2D4A2F),
+                    fontWeight: FontWeight.w600,
+                  ),
+                  label: Text(isZh ? '全部場館' : 'All venues'),
+                ),
+                ChoiceChip(
+                  selected: _favoritesOnly,
+                  onSelected: (_) => _setFavoritesOnly(true),
+                  selectedColor: const Color(0xFF2D6A4F),
+                  labelStyle: TextStyle(
+                    color: _favoritesOnly
+                        ? Colors.white
+                        : const Color(0xFF2D4A2F),
+                    fontWeight: FontWeight.w600,
+                  ),
+                  label: Text(isZh ? '僅收藏場館' : 'Favorites only'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final dependencies = AppScope.of(context);
@@ -146,55 +231,8 @@ class _ListingsPageState extends State<ListingsPage> {
                   if (listings.isEmpty) {
                     return Column(
                       children: [
-                        if (!dependencies.usingFirebase)
-                          Card(
-                            margin: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-                            child: Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Text(s.localDemoModeNotice),
-                            ),
-                          ),
-                        Card(
-                          margin: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(s.platformDisclaimer),
-                                const SizedBox(height: 8),
-                                Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  children: [
-                                    ChoiceChip(
-                                      selected: !_favoritesOnly,
-                                      onSelected: (_) => _setFavoritesOnly(false),
-                                      label: Text(
-                                        AppScope.of(
-                                              context,
-                                            ).localeController.isZhTw
-                                            ? '全部場館'
-                                            : 'All venues',
-                                      ),
-                                    ),
-                                    ChoiceChip(
-                                      selected: _favoritesOnly,
-                                      onSelected: (_) => _setFavoritesOnly(true),
-                                      label: Text(
-                                        AppScope.of(
-                                              context,
-                                            ).localeController.isZhTw
-                                            ? '僅收藏場館'
-                                            : 'Favorites only',
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
+                        if (!dependencies.usingFirebase) _buildModeNotice(s),
+                        _buildFilterCard(context, s),
                         Expanded(
                           child: ListView(
                             padding: const EdgeInsets.all(24),
@@ -215,68 +253,27 @@ class _ListingsPageState extends State<ListingsPage> {
 
                   return Column(
                     children: [
-                      if (!dependencies.usingFirebase)
-                        Card(
-                          margin: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Text(s.localDemoModeNotice),
-                          ),
-                        ),
-                      Card(
-                        margin: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(s.platformDisclaimer),
-                              const SizedBox(height: 8),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: [
-                                  ChoiceChip(
-                                    selected: !_favoritesOnly,
-                                    onSelected: (_) => _setFavoritesOnly(false),
-                                    label: Text(
-                                      AppScope.of(
-                                            context,
-                                          ).localeController.isZhTw
-                                          ? '全部場館'
-                                          : 'All venues',
-                                    ),
-                                  ),
-                                  ChoiceChip(
-                                    selected: _favoritesOnly,
-                                    onSelected: (_) => _setFavoritesOnly(true),
-                                    label: Text(
-                                      AppScope.of(
-                                            context,
-                                          ).localeController.isZhTw
-                                          ? '僅收藏場館'
-                                          : 'Favorites only',
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
+                      if (!dependencies.usingFirebase) _buildModeNotice(s),
+                      _buildFilterCard(context, s),
                       Expanded(
                         child: ListView.builder(
                           itemCount: listings.length,
                           itemBuilder: (context, index) {
                             final listing = listings[index];
-                      final venue = venueMap[listing.venueId];
-                      final donorName =
-                          listing.displayNameOptional?.trim().isNotEmpty == true
-                          ? listing.displayNameOptional!.trim()
-                          : s.privateDonor;
-                      final isFavorite = favoritesStore.isFavorite(
-                        listing.venueId,
-                      );
+                            final venue = venueMap[listing.venueId];
+                            final donorName =
+                                listing.displayNameOptional
+                                        ?.trim()
+                                        .isNotEmpty ==
+                                    true
+                                ? listing.displayNameOptional!.trim()
+                                : s.privateDonor;
+                            final isFavorite = favoritesStore.isFavorite(
+                              listing.venueId,
+                            );
+                            final verifiedTag = listing.enterpriseVerified
+                                ? ' · ${s.verifiedEnterprise}'
+                                : '';
 
                             return Card(
                               child: ListTile(
@@ -286,7 +283,7 @@ class _ListingsPageState extends State<ListingsPage> {
                                 subtitle: Text(
                                   '${venue?.name ?? 'Venue'}\n'
                                   'Pickup: ${formatDateTime(listing.pickupStartAt)} - ${formatDateTime(listing.pickupEndAt)}\n'
-                                  'By: $donorName',
+                                  'By: $donorName$verifiedTag',
                                 ),
                                 isThreeLine: true,
                                 trailing: SizedBox(
@@ -312,7 +309,8 @@ class _ListingsPageState extends State<ListingsPage> {
                                     ],
                                   ),
                                 ),
-                                onTap: () => context.go('/listing/${listing.id}'),
+                                onTap: () =>
+                                    context.go('/listing/${listing.id}'),
                               ),
                             );
                           },

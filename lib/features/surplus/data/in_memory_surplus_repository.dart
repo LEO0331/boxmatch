@@ -257,10 +257,11 @@ class InMemorySurplusRepository implements SurplusRepository {
   Future<List<Reservation>> listRecipientReservations({
     required String claimerUid,
   }) async {
-    final items = _reservations.values
-        .where((item) => item.claimerUid == claimerUid)
-        .toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final items =
+        _reservations.values
+            .where((item) => item.claimerUid == claimerUid)
+            .toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return items;
   }
 
@@ -274,7 +275,9 @@ class InMemorySurplusRepository implements SurplusRepository {
       throw const ValidationException('Reservation not found.');
     }
     if (reservation.claimerUid != claimerUid) {
-      throw const PermissionDeniedException('Reservation does not belong to you.');
+      throw const PermissionDeniedException(
+        'Reservation does not belong to you.',
+      );
     }
     if (reservation.status != ReservationStatus.reserved) {
       throw const ValidationException('Reservation is not active.');

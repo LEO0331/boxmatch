@@ -49,7 +49,10 @@ class _MyReservationsPageState extends State<MyReservationsPage> {
         final listing = await deps.repository
             .watchListing(reservation.listingId)
             .first;
-        return _ReservationWithListing(reservation: reservation, listing: listing);
+        return _ReservationWithListing(
+          reservation: reservation,
+          listing: listing,
+        );
       }),
     );
     return items;
@@ -129,19 +132,15 @@ class _MyReservationsPageState extends State<MyReservationsPage> {
               final item = items[index];
               final reservation = item.reservation;
               final listing = item.listing;
-              final statusLabel = s.statusLabel(
-                switch (reservation.status) {
-                  ReservationStatus.reserved => AppStatusLabel.reserved,
-                  ReservationStatus.completed => AppStatusLabel.completed,
-                  ReservationStatus.expired => AppStatusLabel.expired,
-                  ReservationStatus.cancelled => AppStatusLabel.cancelled,
-                },
-              );
+              final statusLabel = s.statusLabel(switch (reservation.status) {
+                ReservationStatus.reserved => AppStatusLabel.reserved,
+                ReservationStatus.completed => AppStatusLabel.completed,
+                ReservationStatus.expired => AppStatusLabel.expired,
+                ReservationStatus.cancelled => AppStatusLabel.cancelled,
+              });
               return Card(
                 child: ListTile(
-                  title: Text(
-                    '${listing?.itemType ?? 'Item'} · $statusLabel',
-                  ),
+                  title: Text('${listing?.itemType ?? 'Item'} · $statusLabel'),
                   subtitle: Text(
                     'Code: ${reservation.pickupCode}\n'
                     'Pickup: ${listing?.pickupPointText ?? '-'}\n'

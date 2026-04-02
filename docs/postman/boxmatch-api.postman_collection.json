@@ -239,6 +239,102 @@
       "response": []
     },
     {
+      "name": "Recipient - List my reservations",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "pm.test('list my reservations ok', function () {",
+              "  pm.expect(json.ok).to.eql(true);",
+              "  pm.expect(json.reservations).to.be.an('array');",
+              "});",
+              "if (Array.isArray(json.reservations) && json.reservations.length > 0) {",
+              "  pm.collectionVariables.set('reservationId', json.reservations[0].id);",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "content-type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"claimerUid\": \"{{claimerUid}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/recipient/reservations/list",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "recipient",
+            "reservations",
+            "list"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Recipient - Cancel reservation",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "pm.test('cancel reservation ok', function () {",
+              "  pm.expect(json.ok).to.eql(true);",
+              "  pm.expect(json.cancelled).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "content-type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"claimerUid\": \"{{claimerUid}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/recipient/reservations/{{reservationId}}/cancel",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "recipient",
+            "reservations",
+            "{{reservationId}}",
+            "cancel"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
       "name": "Enterprise - List reservations",
       "event": [
         {
