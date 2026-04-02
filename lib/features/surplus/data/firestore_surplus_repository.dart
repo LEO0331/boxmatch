@@ -294,6 +294,48 @@ class FirestoreSurplusRepository implements SurplusRepository {
   }
 
   @override
+  Future<List<Reservation>> listRecipientReservations({
+    required String claimerUid,
+  }) async {
+    final response = await _postJson(
+      '/recipient/reservations/list',
+      {'claimerUid': claimerUid},
+      maxAttempts: 3,
+    );
+    final raw = response['reservations'];
+    if (raw is! List) {
+      return const <Reservation>[];
+    }
+    final reservations = raw.whereType<Map>().map((entry) {
+      final map = Map<String, dynamic>.from(entry);
+      final id = map.remove('id') as String? ?? '';
+      final reservation = Reservation.fromMap(map, id: id);
+      _reservationCache[id] = reservation;
+      return reservation;
+    }).toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return reservations;
+  }
+
+  @override
+  Future<void> cancelReservation({
+    required String reservationId,
+    required String claimerUid,
+  }) async {
+    await _postJson(
+      '/recipient/reservations/$reservationId/cancel',
+      {'claimerUid': claimerUid},
+      maxAttempts: 3,
+    );
+    final cached = _reservationCache[reservationId];
+    if (cached != null && cached.status == ReservationStatus.reserved) {
+      _reservationCache[reservationId] = cached.copyWith(
+        status: ReservationStatus.cancelled,
+      );
+    }
+  }
+
+  @override
   Future<void> confirmPickup({
     required String listingId,
     required String reservationId,

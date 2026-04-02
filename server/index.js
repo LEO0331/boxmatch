@@ -236,6 +236,21 @@ function toMillis(value) {
   return d.getTime();
 }
 
+function resolveListingStatus({ currentStatus, expiresAt, quantityRemaining }) {
+  if (currentStatus === 'completed') {
+    return 'completed';
+  }
+  const now = nowDate();
+  const expires = expiresAt?.toDate ? expiresAt.toDate() : new Date(expiresAt);
+  if (!Number.isNaN(expires.getTime()) && expires <= now) {
+    return 'expired';
+  }
+  if (Number(quantityRemaining || 0) <= 0) {
+    return 'reserved';
+  }
+  return 'active';
+}
+
 function parseDateField(input, fieldName, errors) {
   if (input == null) return undefined;
   const d = new Date(input);
@@ -593,6 +608,150 @@ app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
       ? 'RESERVE_FAILED_BUSINESS_RULE'
       : 'RESERVE_FAILED_INTERNAL';
     logServerError('recipient.reserve.failed', req, error, {
+      reasonCode
+    });
+    return errorResponse(res, status, message, reasonCode);
+  }
+});
+
+app.post('/recipient/reservations/list', async (req, res) => {
+  try {
+    const claimerUid = String(req.body?.claimerUid || '').trim();
+    if (!claimerUid) {
+      return errorResponse(
+        res,
+        400,
+        'claimerUid is required.',
+        'VALIDATION_CLAIMER_UID_REQUIRED'
+      );
+    }
+
+    const snap = await db
+      .collection(RESERVATIONS)
+      .where('claimerUid', '==', claimerUid)
+      .get();
+
+    const reservations = snap.docs
+      .map((doc) => {
+        const data = doc.data() || {};
+        return {
+          id: doc.id,
+          listingId: data.listingId || '',
+          claimerUid: data.claimerUid || claimerUid,
+          qty: Number(data.qty || 0),
+          pickupCode: data.pickupCode || '',
+          status: data.status || 'reserved',
+          createdAt: toIso(data.createdAt),
+          expiresAt: toIso(data.expiresAt),
+          _createdAtMs: toMillis(data.createdAt)
+        };
+      })
+      .sort((a, b) => b._createdAtMs - a._createdAtMs)
+      .map(({ _createdAtMs, ...item }) => item);
+
+    return res.json({
+      ok: true,
+      code: 'LIST_RECIPIENT_RESERVATIONS_SUCCESS',
+      claimerUid,
+      reservations
+    });
+  } catch (error) {
+    logServerError('recipient.reservation.list.failed', req, error, {
+      reasonCode: 'LIST_RECIPIENT_RESERVATIONS_FAILED_INTERNAL'
+    });
+    return errorResponse(
+      res,
+      500,
+      'Internal server error.',
+      'LIST_RECIPIENT_RESERVATIONS_FAILED_INTERNAL'
+    );
+  }
+});
+
+app.post('/recipient/reservations/:reservationId/cancel', async (req, res) => {
+  try {
+    const reservationId = req.params.reservationId;
+    const claimerUid = String(req.body?.claimerUid || '').trim();
+    if (!claimerUid) {
+      return errorResponse(
+        res,
+        400,
+        'claimerUid is required.',
+        'VALIDATION_CLAIMER_UID_REQUIRED'
+      );
+    }
+
+    const reservationRef = db.collection(RESERVATIONS).doc(reservationId);
+    const result = await db.runTransaction(async (tx) => {
+      const reservationSnap = await tx.get(reservationRef);
+      if (!reservationSnap.exists) {
+        throw new Error('Reservation not found.');
+      }
+
+      const reservation = reservationSnap.data() || {};
+      if (String(reservation.claimerUid || '') !== claimerUid) {
+        throw new Error('Reservation does not belong to this user.');
+      }
+      const status = String(reservation.status || 'reserved');
+      if (status === 'cancelled') {
+        return {
+          idempotent: true,
+          listingId: String(reservation.listingId || ''),
+          qty: Number(reservation.qty || 0)
+        };
+      }
+      if (status !== 'reserved') {
+        throw new Error('Reservation is not active.');
+      }
+
+      const listingId = String(reservation.listingId || '');
+      const listingRef = db.collection(LISTINGS).doc(listingId);
+      const listingSnap = await tx.get(listingRef);
+      if (!listingSnap.exists) {
+        throw new Error('Listing not found.');
+      }
+      const listing = listingSnap.data() || {};
+      const qty = Number(reservation.qty || 0);
+      const currentRemaining = Number(listing.quantityRemaining || 0);
+      const quantityTotal = Number(listing.quantityTotal || 0);
+      const nextRemaining = Math.max(0, Math.min(quantityTotal, currentRemaining + qty));
+      const nextStatus = resolveListingStatus({
+        currentStatus: String(listing.status || 'active'),
+        expiresAt: listing.expiresAt,
+        quantityRemaining: nextRemaining
+      });
+
+      tx.update(reservationRef, { status: 'cancelled' });
+      tx.update(listingRef, {
+        quantityRemaining: nextRemaining,
+        status: nextStatus,
+        updatedAt: nowDate()
+      });
+
+      return { idempotent: false, listingId, qty };
+    });
+
+    return res.json({
+      ok: true,
+      code: result.idempotent ? 'CANCEL_RESERVATION_IDEMPOTENT' : 'CANCEL_RESERVATION_SUCCESS',
+      reservationId,
+      cancelled: true,
+      idempotentReplay: result.idempotent === true
+    });
+  } catch (error) {
+    const message = error?.message || 'Internal server error.';
+    const status = [
+      'Reservation not found.',
+      'Reservation does not belong to this user.',
+      'Reservation is not active.',
+      'Listing not found.'
+    ].includes(message)
+      ? 400
+      : 500;
+    const reasonCode = status === 400
+      ? 'CANCEL_RESERVATION_FAILED_BUSINESS_RULE'
+      : 'CANCEL_RESERVATION_FAILED_INTERNAL';
+    logServerError('recipient.reservation.cancel.failed', req, error, {
       reasonCode
     });
     return errorResponse(res, status, message, reasonCode);

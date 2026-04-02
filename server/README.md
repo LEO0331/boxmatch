@@ -8,6 +8,8 @@ Base URL (after deploy on Render):
 
 - `GET /health`
 - `POST /recipient/listings/:listingId/reserve`
+- `POST /recipient/reservations/list`
+- `POST /recipient/reservations/:reservationId/cancel`
 - `POST /enterprise/listings/create`
 - `POST /enterprise/listings/:listingId/validate-token`
 - `POST /enterprise/listings/:listingId/reservations`

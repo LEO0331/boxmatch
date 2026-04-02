@@ -42,6 +42,12 @@ class AppStrings {
   String activeCount(int count) => _zh ? '$count 筆進行中' : '$count active';
 
   String get listingDetailTitle => _zh ? '物件詳情' : 'Listing details';
+  String get myReservationsTitle => _zh ? '我的預約' : 'My Reservations';
+  String get myReservationsCta => _zh ? '我的預約' : 'My reservations';
+  String get noMyReservations =>
+      _zh ? '目前尚無預約紀錄。' : 'No reservations yet.';
+  String get cancelReservation => _zh ? '取消預約' : 'Cancel reservation';
+  String get reservationCancelled => _zh ? '預約已取消。' : 'Reservation cancelled.';
   String get listingNotFound => _zh ? '找不到此物件。' : 'Listing not found.';
   String get reserveOneItem => _zh ? '預約 1 份' : 'Reserve 1 item';
   String get beforeReserving => _zh ? '預約前請確認' : 'Before reserving';
@@ -62,6 +68,8 @@ class AppStrings {
   String get reservationNotFound => _zh ? '找不到此預約。' : 'Reservation not found.';
   String get offlineIdentityMode =>
       _zh ? '使用離線身份模式' : 'Using offline identity mode';
+  String get pendingConfirm => _zh ? '待確認' : 'Pending';
+  String get confirmedFilter => _zh ? '已確認' : 'Confirmed';
   String get showPickupCodeHelp => _zh
       ? '請在取餐時向企業出示這組 4 位數代碼。'
       : 'Show this 4-digit code to the enterprise at pickup.';
