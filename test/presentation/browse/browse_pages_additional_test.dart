@@ -21,6 +21,8 @@ class _InstrumentedRepository extends InMemorySurplusRepository {
   bool reservationStreamError = false;
   bool throwOnReserve = false;
   bool throwOnAbuseSignal = false;
+  bool watchListingCalledAfterRetry = false;
+  bool watchVenuesCalledAfterRetry = false;
   String? lastAbuseReason;
   int reconcileCalls = 0;
 
@@ -30,6 +32,7 @@ class _InstrumentedRepository extends InMemorySurplusRepository {
 
   @override
   Stream<Listing?> watchListing(String listingId) {
+    watchListingCalledAfterRetry = true;
     if (listingStreamErrorIds.contains(listingId)) {
       return Stream.error(StateError('listing stream failed'));
     }
@@ -42,6 +45,7 @@ class _InstrumentedRepository extends InMemorySurplusRepository {
 
   @override
   Stream<List<Venue>> watchVenues() {
+    watchVenuesCalledAfterRetry = true;
     if (venuesStreamError) {
       return Stream.error(StateError('venue stream failed'));
     }
@@ -295,6 +299,43 @@ void main() {
     },
   );
 
+  testWidgets('listings page supports near-hubs and available-now filters', (
+    tester,
+  ) async {
+    final repo = _InstrumentedRepository();
+    final now = DateTime.now();
+    await repo.createListing(
+      _input(
+        now,
+        venueId: 'taipei-nangang-exhibition-center-hall-1',
+        itemType: 'Near Hub Item',
+        expiresIn: const Duration(hours: 2),
+      ),
+    );
+    await repo.createListing(
+      _input(
+        now.subtract(const Duration(hours: 3)),
+        venueId: 'taipei-nangang-exhibition-center-hall-2',
+        itemType: 'Expired Window Item',
+        expiresIn: const Duration(hours: 4),
+      ),
+    );
+
+    await _pumpHome(tester, repo);
+
+    await tester.tap(find.text('Near hubs'));
+    await tester.pumpAndSettle();
+    expect(find.text('Clear filter'), findsOneWidget);
+
+    await tester.tap(find.text('Available now'));
+    await tester.pumpAndSettle();
+    expect(find.text('Clear filter'), findsOneWidget);
+
+    await tester.tap(find.text('Clear filter'));
+    await tester.pumpAndSettle();
+    expect(find.text('Clear filter'), findsNothing);
+  });
+
   testWidgets('listings page shows load error when venue stream fails', (
     tester,
   ) async {
@@ -378,6 +419,9 @@ void main() {
       ..listingStreamErrorIds.add('bad-listing');
     await _pumpDetail(tester, repo, 'bad-listing');
     expect(find.text('Unable to load'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Retry'));
+    await tester.pumpAndSettle();
+    expect(repo.watchListingCalledAfterRetry, isTrue);
   });
 
   testWidgets('listing detail shows load error when venues stream fails', (
@@ -393,7 +437,55 @@ void main() {
     );
     await _pumpDetail(tester, repo, created.listingId);
     expect(find.text('Unable to load'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Retry'));
+    await tester.pumpAndSettle();
+    expect(repo.watchVenuesCalledAfterRetry, isTrue);
   });
+
+  testWidgets(
+    'listing detail reserve success falls back to navigator when go_router is absent',
+    (tester) async {
+      final repo = _InstrumentedRepository();
+      final created = await repo.createListing(
+        _input(
+          DateTime.now(),
+          venueId: 'taipei-nangang-exhibition-center-hall-1',
+          itemType: 'Fallback flow',
+        ),
+      );
+      await _pumpDetail(tester, repo, created.listingId);
+
+      await tester.tap(find.text('Reserve 1 item'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(CheckboxListTile));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Reserve'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Reservation confirmed'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'listing detail renders badge chips and filters unknown badge id',
+    (tester) async {
+      final now = DateTime.now();
+      final repo = _InstrumentedRepository()
+        ..forcedListings['badge-id'] = _forcedListing(
+          now,
+          id: 'badge-id',
+          status: ListingStatus.active,
+          quantityRemaining: 1,
+          expiresAt: now.add(const Duration(hours: 1)),
+          displayNameOptional: 'Badge Enterprise',
+          enterpriseBadges: const <String>['verified', 'unknown_badge'],
+        );
+
+      await _pumpDetail(tester, repo, 'badge-id');
+      expect(find.text('Verified enterprise'), findsOneWidget);
+      expect(find.text('unknown_badge'), findsNothing);
+    },
+  );
 
   testWidgets(
     'listing detail renders reserved, expired and completed statuses',
