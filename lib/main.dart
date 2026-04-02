@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -22,7 +23,9 @@ void _logGlobalError({
     'stackTrace': stackTrace?.toString(),
     'ts': DateTime.now().toIso8601String(),
   };
-  debugPrint(jsonEncode(payload));
+  final line = jsonEncode(payload);
+  debugPrint(line);
+  developer.log(line, name: 'BOXMATCH_ERROR');
 }
 
 Future<void> main() async {

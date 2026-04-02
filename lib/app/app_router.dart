@@ -1,4 +1,5 @@
 import 'package:go_router/go_router.dart';
+import 'package:flutter/foundation.dart';
 
 import '../core/layout/app_shell.dart';
 import '../features/surplus/presentation/browse/listing_detail_page.dart';
@@ -7,13 +8,8 @@ import '../features/surplus/presentation/browse/reservation_confirmation_page.da
 import '../features/surplus/presentation/enterprise/enterprise_listing_page.dart';
 import '../features/surplus/presentation/map/venues_map_page.dart';
 
-String? _extractEnterpriseEditToken(GoRouterState state) {
-  final fromQuery = state.uri.queryParameters['token'];
-  if (fromQuery != null && fromQuery.isNotEmpty) {
-    return fromQuery;
-  }
-
-  final fragment = Uri.base.fragment;
+@visibleForTesting
+String? parseEnterpriseEditTokenFromFragment(String fragment) {
   if (fragment.isEmpty) {
     return null;
   }
@@ -29,6 +25,15 @@ String? _extractEnterpriseEditToken(GoRouterState state) {
     // no-op: fall through and return null
   }
   return null;
+}
+
+String? _extractEnterpriseEditToken(GoRouterState state) {
+  final fromQuery = state.uri.queryParameters['token'];
+  if (fromQuery != null && fromQuery.isNotEmpty) {
+    return fromQuery;
+  }
+
+  return parseEnterpriseEditTokenFromFragment(Uri.base.fragment);
 }
 
 GoRouter buildRouter() {

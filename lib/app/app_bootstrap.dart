@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:developer' as developer;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -51,17 +52,17 @@ Future<AppDependencies> bootstrapApp() async {
       favoritesStore: favoritesStore,
     );
   } catch (error, stackTrace) {
-    debugPrint(
-      jsonEncode({
-        'tag': 'BOXMATCH_ERROR',
-        'source': 'bootstrap.firebase_fallback',
-        'fatal': false,
-        'errorType': error.runtimeType.toString(),
-        'message': error.toString(),
-        'stackTrace': stackTrace.toString(),
-        'ts': DateTime.now().toIso8601String(),
-      }),
-    );
+    final line = jsonEncode({
+      'tag': 'BOXMATCH_ERROR',
+      'source': 'bootstrap.firebase_fallback',
+      'fatal': false,
+      'errorType': error.runtimeType.toString(),
+      'message': error.toString(),
+      'stackTrace': stackTrace.toString(),
+      'ts': DateTime.now().toIso8601String(),
+    });
+    debugPrint(line);
+    developer.log(line, name: 'BOXMATCH_ERROR');
 
     final repository = InMemorySurplusRepository();
     await repository.ensureSeedData();
