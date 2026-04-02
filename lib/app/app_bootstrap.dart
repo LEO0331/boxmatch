@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as developer;
 
@@ -5,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/identity/firebase_recipient_identity_service.dart';
@@ -45,6 +47,7 @@ Future<AppDependencies> bootstrapApp() async {
       },
     );
     await repository.ensureSeedData();
+    unawaited(_warmUpApi(apiBaseUrl));
 
     final identity = FirebaseRecipientIdentityService(
       FirebaseAuth.instance,
@@ -81,5 +84,15 @@ Future<AppDependencies> bootstrapApp() async {
       localeController: localeController,
       favoritesStore: favoritesStore,
     );
+  }
+}
+
+Future<void> _warmUpApi(String apiBaseUrl) async {
+  final normalized = apiBaseUrl.replaceAll(RegExp(r'/+$'), '');
+  final uri = Uri.parse('$normalized/health');
+  try {
+    await http.get(uri).timeout(const Duration(seconds: 6));
+  } catch (_) {
+    // Best-effort warm-up only.
   }
 }

@@ -188,9 +188,44 @@ Rules:
 - `venueId` must match posting venue.
 - `active=true` means verified badge is granted.
 
+## Badge Rules (Admin-configurable)
+
+`enterpriseBadges` are now computed by server from Firestore config doc:
+
+- collection: `badge_rules`
+- document: `default`
+
+Example:
+
+```json
+{
+  "enabled": true,
+  "rules": {
+    "verified": { "enabled": true },
+    "quality_trusted": {
+      "enabled": true,
+      "minCompletedRate": 0.8,
+      "maxCancelledRate": 0.2,
+      "minReservations": 5
+    },
+    "high_impact": { "enabled": true, "minQuantityTotal": 20 },
+    "flexible_pickup": { "enabled": true, "minPickupWindowMinutes": 120 },
+    "stable_shelf_life": {
+      "enabled": true,
+      "minExpiryAfterPickupStartMinutes": 120
+    }
+  }
+}
+```
+
+Admin location today:
+
+- Firebase Console -> Firestore -> `badge_rules/default`
+- this project currently has no separate in-app `/admin` screen
+
 ### Seed template + one-click import
 
-You do **not** need to manually create the `verified_enterprises` collection first.
+You do **not** need to manually create `verified_enterprises` or `badge_rules` first.
 Running the script will auto-create collection/documents.
 
 From repo root:

@@ -213,15 +213,25 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
                           Text(
                             'Donor: ${listing.displayNameOptional?.trim().isNotEmpty == true ? listing.displayNameOptional : s.privateDonor}',
                           ),
-                          if (listing.enterpriseVerified) ...[
+                          if (listing.enterpriseBadges.isNotEmpty) ...[
                             const SizedBox(height: 6),
-                            Chip(
-                              avatar: const Icon(
-                                Icons.verified,
-                                size: 16,
-                                color: Color(0xFF2D6A4F),
-                              ),
-                              label: Text(s.verifiedEnterprise),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: listing.enterpriseBadges
+                                  .map(s.enterpriseBadgeLabel)
+                                  .whereType<String>()
+                                  .map(
+                                    (label) => Chip(
+                                      avatar: const Icon(
+                                        Icons.verified,
+                                        size: 16,
+                                        color: Color(0xFF2D6A4F),
+                                      ),
+                                      label: Text(label),
+                                    ),
+                                  )
+                                  .toList(),
                             ),
                           ],
                           const SizedBox(height: 8),

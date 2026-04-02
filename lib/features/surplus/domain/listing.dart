@@ -51,6 +51,7 @@ class Listing {
     required this.displayNameOptional,
     this.templateId,
     this.enterpriseVerified = false,
+    this.enterpriseBadges = const <String>[],
     required this.visibility,
     required this.status,
     required this.editTokenHash,
@@ -73,6 +74,7 @@ class Listing {
   final String? displayNameOptional;
   final String? templateId;
   final bool enterpriseVerified;
+  final List<String> enterpriseBadges;
   final ListingVisibility visibility;
   final ListingStatus status;
   final String editTokenHash;
@@ -116,6 +118,7 @@ class Listing {
     String? displayNameOptional,
     String? templateId,
     bool? enterpriseVerified,
+    List<String>? enterpriseBadges,
     ListingVisibility? visibility,
     ListingStatus? status,
     String? editTokenHash,
@@ -138,6 +141,7 @@ class Listing {
       displayNameOptional: displayNameOptional ?? this.displayNameOptional,
       templateId: templateId ?? this.templateId,
       enterpriseVerified: enterpriseVerified ?? this.enterpriseVerified,
+      enterpriseBadges: enterpriseBadges ?? this.enterpriseBadges,
       visibility: visibility ?? this.visibility,
       status: status ?? this.status,
       editTokenHash: editTokenHash ?? this.editTokenHash,
@@ -162,6 +166,7 @@ class Listing {
       'displayNameOptional': displayNameOptional,
       'templateId': templateId,
       'enterpriseVerified': enterpriseVerified,
+      'enterpriseBadges': enterpriseBadges,
       'visibility': visibility.name,
       'status': status.name,
       'editTokenHash': editTokenHash,
@@ -187,6 +192,10 @@ class Listing {
       displayNameOptional: map['displayNameOptional'] as String?,
       templateId: map['templateId'] as String?,
       enterpriseVerified: map['enterpriseVerified'] == true,
+      enterpriseBadges: (map['enterpriseBadges'] as List?)
+              ?.whereType<String>()
+              .toList() ??
+          const <String>[],
       visibility: ListingVisibilityX.fromName(map['visibility'] as String?),
       status: ListingStatusX.fromName(map['status'] as String?),
       editTokenHash: map['editTokenHash'] as String? ?? '',

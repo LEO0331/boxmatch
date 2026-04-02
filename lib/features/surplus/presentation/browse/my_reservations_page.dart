@@ -28,6 +28,7 @@ class MyReservationsPage extends StatefulWidget {
 }
 
 class _MyReservationsPageState extends State<MyReservationsPage> {
+  static const Duration _loadRetryDelay = Duration(milliseconds: 700);
   Future<String>? _uidFuture;
   Future<List<_ReservationWithListing>>? _loadFuture;
 
@@ -39,6 +40,18 @@ class _MyReservationsPageState extends State<MyReservationsPage> {
   }
 
   Future<List<_ReservationWithListing>> _loadReservations() async {
+    try {
+      return await _loadReservationsOnce();
+    } on SurplusException {
+      await Future<void>.delayed(_loadRetryDelay);
+      return _loadReservationsOnce();
+    } catch (_) {
+      await Future<void>.delayed(_loadRetryDelay);
+      return _loadReservationsOnce();
+    }
+  }
+
+  Future<List<_ReservationWithListing>> _loadReservationsOnce() async {
     final deps = AppScope.of(context);
     final uid = await (_uidFuture ?? deps.identityService.ensureRecipientUid());
     final reservations = await deps.repository.listRecipientReservations(
@@ -165,16 +178,6 @@ class _MyReservationsPageState extends State<MyReservationsPage> {
             );
           }
 
-          final aliasFrequency = <String, int>{};
-          for (final item in items) {
-            final alias = item.listing?.displayNameOptional?.trim() ?? '';
-            if (alias.isEmpty) {
-              continue;
-            }
-            final normalized = alias.toLowerCase();
-            aliasFrequency[normalized] = (aliasFrequency[normalized] ?? 0) + 1;
-          }
-
           return ListView(
             padding: const EdgeInsets.all(12),
             children: [
@@ -207,10 +210,10 @@ class _MyReservationsPageState extends State<MyReservationsPage> {
               ...items.map((item) {
                 final reservation = item.reservation;
                 final listing = item.listing;
-                final alias = listing?.displayNameOptional?.trim() ?? '';
-                final isFrequentEnterprise =
-                    alias.isNotEmpty &&
-                    (aliasFrequency[alias.toLowerCase()] ?? 0) >= 2;
+                final badgeLabels = (listing?.enterpriseBadges ?? const <String>[])
+                    .map(s.enterpriseBadgeLabel)
+                    .whereType<String>()
+                    .toList();
                 final statusLabel = s.statusLabel(switch (reservation.status) {
                   ReservationStatus.reserved => AppStatusLabel.reserved,
                   ReservationStatus.completed => AppStatusLabel.completed,
@@ -255,16 +258,24 @@ class _MyReservationsPageState extends State<MyReservationsPage> {
                           'Pickup: ${listing?.pickupPointText ?? '-'}\n'
                           'Expires: ${formatDateTime(reservation.expiresAt)}',
                         ),
-                        if (isFrequentEnterprise) ...[
+                        if (badgeLabels.isNotEmpty) ...[
                           const SizedBox(height: 6),
-                          Chip(
-                            visualDensity: VisualDensity.compact,
-                            avatar: const Icon(
-                              Icons.verified,
-                              size: 16,
-                              color: Color(0xFF2D6A4F),
-                            ),
-                            label: Text(s.frequentEnterprise),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: badgeLabels
+                                .map(
+                                  (label) => Chip(
+                                    visualDensity: VisualDensity.compact,
+                                    avatar: const Icon(
+                                      Icons.verified,
+                                      size: 16,
+                                      color: Color(0xFF2D6A4F),
+                                    ),
+                                    label: Text(label),
+                                  ),
+                                )
+                                .toList(),
                           ),
                         ],
                       ],

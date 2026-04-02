@@ -36,6 +36,7 @@ const KPI_EVENTS = 'kpi_events';
 const KPI_DAILY = 'kpi_daily';
 const KPI_SUMMARY = 'kpi_summary';
 const VERIFIED_ENTERPRISES = 'verified_enterprises';
+const BADGE_RULES = 'badge_rules';
 const UNVERIFIED_DAILY_LIMIT = Math.max(
   1,
   Number(process.env.UNVERIFIED_DAILY_LIMIT || 5)
@@ -49,6 +50,25 @@ const LEGACY_RECIPIENT_DAILY_RESERVATION_LIMIT = Math.max(
   Number(process.env.LEGACY_RECIPIENT_DAILY_RESERVATION_LIMIT || 2)
 );
 const REQUIRE_ID_TOKEN = String(process.env.REQUIRE_ID_TOKEN || 'false').toLowerCase() === 'true';
+const DEFAULT_BADGE_RULES = {
+  enabled: true,
+  rules: {
+    verified: { enabled: true },
+    quality_trusted: {
+      enabled: true,
+      minCompletedRate: 0.8,
+      maxCancelledRate: 0.2,
+      minReservations: 5
+    },
+    high_impact: { enabled: true, minQuantityTotal: 20 },
+    flexible_pickup: { enabled: true, minPickupWindowMinutes: 120 },
+    stable_shelf_life: { enabled: true, minExpiryAfterPickupStartMinutes: 120 }
+  }
+};
+
+let cachedBadgeRules = null;
+let cachedBadgeRulesAt = 0;
+const BADGE_RULES_CACHE_TTL_MS = 60 * 1000;
 
 function sha256(value) {
   return crypto.createHash('sha256').update(value, 'utf8').digest('hex');
@@ -338,6 +358,44 @@ function resolveClientIp(req) {
   return String(req.ip || req.socket?.remoteAddress || 'unknown').trim();
 }
 
+function asNumber(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function isRuleEnabled(rule) {
+  return rule && rule.enabled !== false;
+}
+
+async function getBadgeRules() {
+  const now = Date.now();
+  if (
+    cachedBadgeRules &&
+    now - cachedBadgeRulesAt < BADGE_RULES_CACHE_TTL_MS
+  ) {
+    return cachedBadgeRules;
+  }
+
+  try {
+    const snap = await db.collection(BADGE_RULES).doc('default').get();
+    const raw = snap.exists ? snap.data() || {} : {};
+    const merged = {
+      enabled: raw.enabled !== false,
+      rules: {
+        ...DEFAULT_BADGE_RULES.rules,
+        ...(raw.rules || {})
+      }
+    };
+    cachedBadgeRules = merged;
+    cachedBadgeRulesAt = now;
+    return merged;
+  } catch (_) {
+    cachedBadgeRules = DEFAULT_BADGE_RULES;
+    cachedBadgeRulesAt = now;
+    return DEFAULT_BADGE_RULES;
+  }
+}
+
 function deriveEnterpriseKey(req, payload) {
   const alias = normalizeAlias(payload.displayNameOptional);
   if (alias) {
@@ -359,6 +417,143 @@ async function isEnterpriseVerified(payload) {
     .limit(1)
     .get();
   return snap.docs.length > 0;
+}
+
+async function computeEnterpriseReservationMetrics(enterpriseKey) {
+  if (!enterpriseKey) {
+    return {
+      totalReservations: 0,
+      completedReservations: 0,
+      cancelledReservations: 0,
+      completedRate: 0,
+      cancelledRate: 0
+    };
+  }
+
+  const listingSnap = await db
+    .collection(LISTINGS)
+    .where('enterpriseKey', '==', enterpriseKey)
+    .limit(200)
+    .get();
+  const listingIds = listingSnap.docs.map((doc) => doc.id);
+  if (listingIds.length === 0) {
+    return {
+      totalReservations: 0,
+      completedReservations: 0,
+      cancelledReservations: 0,
+      completedRate: 0,
+      cancelledRate: 0
+    };
+  }
+
+  const chunks = [];
+  for (let i = 0; i < listingIds.length; i += 30) {
+    chunks.push(listingIds.slice(i, i + 30));
+  }
+
+  let totalReservations = 0;
+  let completedReservations = 0;
+  let cancelledReservations = 0;
+  for (const chunk of chunks) {
+    const reservationSnap = await db
+      .collection(RESERVATIONS)
+      .where('listingId', 'in', chunk)
+      .get();
+    for (const doc of reservationSnap.docs) {
+      const status = String(doc.data()?.status || 'reserved');
+      totalReservations += 1;
+      if (status === 'completed') {
+        completedReservations += 1;
+      }
+      if (status === 'cancelled') {
+        cancelledReservations += 1;
+      }
+    }
+  }
+
+  const completedRate =
+    totalReservations > 0 ? completedReservations / totalReservations : 0;
+  const cancelledRate =
+    totalReservations > 0 ? cancelledReservations / totalReservations : 0;
+
+  return {
+    totalReservations,
+    completedReservations,
+    cancelledReservations,
+    completedRate,
+    cancelledRate
+  };
+}
+
+async function resolveEnterpriseBadges({ listingData, enterpriseVerified }) {
+  const rulesRoot = await getBadgeRules();
+  if (rulesRoot.enabled === false) {
+    return [];
+  }
+  const rules = rulesRoot.rules || {};
+  const badges = [];
+
+  if (enterpriseVerified && isRuleEnabled(rules.verified)) {
+    badges.push('verified');
+  }
+
+  if (isRuleEnabled(rules.high_impact)) {
+    const minQuantity = asNumber(rules.high_impact.minQuantityTotal, 20);
+    if (asNumber(listingData.quantityTotal, 0) >= minQuantity) {
+      badges.push('high_impact');
+    }
+  }
+
+  if (isRuleEnabled(rules.flexible_pickup)) {
+    const minMinutes = asNumber(
+      rules.flexible_pickup.minPickupWindowMinutes,
+      120
+    );
+    const windowMs =
+      toMillis(listingData.pickupEndAt) - toMillis(listingData.pickupStartAt);
+    if (windowMs >= minMinutes * 60 * 1000) {
+      badges.push('flexible_pickup');
+    }
+  }
+
+  if (isRuleEnabled(rules.stable_shelf_life)) {
+    const minMinutes = asNumber(
+      rules.stable_shelf_life.minExpiryAfterPickupStartMinutes,
+      120
+    );
+    const shelfMs =
+      toMillis(listingData.expiresAt) - toMillis(listingData.pickupStartAt);
+    if (shelfMs >= minMinutes * 60 * 1000) {
+      badges.push('stable_shelf_life');
+    }
+  }
+
+  if (isRuleEnabled(rules.quality_trusted)) {
+    const minCompletedRate = asNumber(
+      rules.quality_trusted.minCompletedRate,
+      0.8
+    );
+    const maxCancelledRate = asNumber(
+      rules.quality_trusted.maxCancelledRate,
+      0.2
+    );
+    const minReservations = asNumber(
+      rules.quality_trusted.minReservations,
+      5
+    );
+    const metrics = await computeEnterpriseReservationMetrics(
+      String(listingData.enterpriseKey || '')
+    );
+    if (
+      metrics.totalReservations >= minReservations &&
+      metrics.completedRate >= minCompletedRate &&
+      metrics.cancelledRate <= maxCancelledRate
+    ) {
+      badges.push('quality_trusted');
+    }
+  }
+
+  return badges;
 }
 
 function resolveListingStatus({ currentStatus, expiresAt, quantityRemaining }) {
@@ -988,6 +1183,14 @@ app.post('/enterprise/listings/create', async (req, res) => {
     const now = nowDate();
     const enterpriseKey = deriveEnterpriseKey(req, payload);
     const enterpriseVerified = await isEnterpriseVerified(payload);
+    const listingDraft = {
+      ...payload,
+      enterpriseKey
+    };
+    const enterpriseBadges = await resolveEnterpriseBadges({
+      listingData: listingDraft,
+      enterpriseVerified
+    });
 
     if (!enterpriseVerified) {
       const from = startOfDay(now);
@@ -1027,6 +1230,7 @@ app.post('/enterprise/listings/create', async (req, res) => {
       visibility: payload.visibility,
       status: 'active',
       enterpriseVerified,
+      enterpriseBadges,
       enterpriseKey,
       editTokenHash: sha256(token),
       createdAt: now,
@@ -1170,12 +1374,30 @@ app.post('/enterprise/listings/:listingId/update', async (req, res) => {
     }
 
     const existing = verified.data;
+    const merged = {
+      ...existing,
+      ...payload
+    };
+    const enterpriseKey =
+      String(existing.enterpriseKey || '').trim() ||
+      deriveEnterpriseKey(req, merged);
+    const enterpriseVerified = await isEnterpriseVerified(merged);
+    const enterpriseBadges = await resolveEnterpriseBadges({
+      listingData: {
+        ...merged,
+        enterpriseKey
+      },
+      enterpriseVerified
+    });
     const quantityTotal = payload.quantityTotal ?? existing.quantityTotal;
     const prevRemaining = Number(existing.quantityRemaining ?? 0);
     const nextRemaining = Math.max(0, Math.min(prevRemaining, quantityTotal));
 
     const updateDoc = {
       ...payload,
+      enterpriseVerified,
+      enterpriseBadges,
+      enterpriseKey,
       quantityRemaining: nextRemaining,
       status: nextRemaining === 0 ? 'reserved' : 'active',
       updatedAt: nowDate()

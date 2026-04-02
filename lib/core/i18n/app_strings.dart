@@ -85,6 +85,7 @@ class AppStrings {
   String get riskReasonOther => _zh ? '其他風險' : 'Other risk';
   String get abuseReported => _zh ? '已送出風險回報。' : 'Safety report submitted.';
   String get verifiedEnterprise => _zh ? '已驗證企業' : 'Verified enterprise';
+  String get trustedQualityEnterprise => _zh ? '交付品質穩定' : 'Trusted handoff quality';
   String get highImpactEnterprise => _zh ? '高量捐贈企業' : 'High-impact donor';
   String get flexiblePickupEnterprise => _zh ? '彈性取餐時段' : 'Flexible pickup window';
   String get stableShelfLifeEnterprise => _zh ? '保存時效較穩定' : 'Stable shelf-life setup';
@@ -120,6 +121,23 @@ class AppStrings {
         return _zh ? '已逾期' : 'Expired';
       case AppStatusLabel.cancelled:
         return _zh ? '已取消' : 'Cancelled';
+    }
+  }
+
+  String? enterpriseBadgeLabel(String badgeId) {
+    switch (badgeId) {
+      case 'verified':
+        return verifiedEnterprise;
+      case 'quality_trusted':
+        return trustedQualityEnterprise;
+      case 'high_impact':
+        return highImpactEnterprise;
+      case 'flexible_pickup':
+        return flexiblePickupEnterprise;
+      case 'stable_shelf_life':
+        return stableShelfLifeEnterprise;
+      default:
+        return null;
     }
   }
 }
