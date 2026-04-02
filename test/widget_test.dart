@@ -9,6 +9,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 class _FakeIdentityService implements RecipientIdentityService {
   @override
+  bool get isUsingLocalFallback => false;
+
+  @override
   Future<String> ensureRecipientUid() async => 'test-user';
 }
 

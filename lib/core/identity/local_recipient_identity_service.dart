@@ -8,6 +8,9 @@ class LocalRecipientIdentityService implements RecipientIdentityService {
   String? _cachedUid;
 
   @override
+  bool get isUsingLocalFallback => true;
+
+  @override
   Future<String> ensureRecipientUid() async {
     if (_cachedUid != null) {
       return _cachedUid!;

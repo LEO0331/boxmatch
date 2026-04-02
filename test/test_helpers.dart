@@ -7,6 +7,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class FakeIdentityService implements RecipientIdentityService {
   @override
+  bool get isUsingLocalFallback => false;
+
+  @override
   Future<String> ensureRecipientUid() async => 'test-user';
 }
 
