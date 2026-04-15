@@ -29,30 +29,30 @@ void _logGlobalError({
 }
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
-  FlutterError.onError = (details) {
-    FlutterError.presentError(details);
-    _logGlobalError(
-      source: 'flutter_error',
-      error: details.exception,
-      stackTrace: details.stack,
-      fatal: true,
-    );
-  };
-
-  PlatformDispatcher.instance.onError = (error, stack) {
-    _logGlobalError(
-      source: 'platform_dispatcher',
-      error: error,
-      stackTrace: stack,
-      fatal: true,
-    );
-    return true;
-  };
-
   await runZonedGuarded<Future<void>>(
     () async {
+      WidgetsFlutterBinding.ensureInitialized();
+
+      FlutterError.onError = (details) {
+        FlutterError.presentError(details);
+        _logGlobalError(
+          source: 'flutter_error',
+          error: details.exception,
+          stackTrace: details.stack,
+          fatal: true,
+        );
+      };
+
+      PlatformDispatcher.instance.onError = (error, stack) {
+        _logGlobalError(
+          source: 'platform_dispatcher',
+          error: error,
+          stackTrace: stack,
+          fatal: true,
+        );
+        return true;
+      };
+
       final dependencies = await bootstrapApp();
       runApp(BoxmatchApp(dependencies: dependencies));
     },

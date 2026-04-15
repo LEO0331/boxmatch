@@ -1,0 +1,5 @@
+{
+  "last_turn_at": "2026-04-15T06:31:16.667Z",
+  "turn_count": 3,
+  "last_agent_output": "這不是邏輯 bug，是 Flutter hot reload 限制。  \n你剛剛改到 `const class` 的欄位結構（新增/刪除 field），VM 無法用 hot reload 套用，只能 "
+}
