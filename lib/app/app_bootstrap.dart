@@ -46,7 +46,7 @@ Future<AppDependencies> bootstrapApp() async {
         return user.getIdToken();
       },
     );
-    await repository.ensureSeedData();
+    unawaited(repository.ensureSeedData());
     unawaited(_warmUpApi(apiBaseUrl));
 
     final identity = FirebaseRecipientIdentityService(
@@ -75,7 +75,7 @@ Future<AppDependencies> bootstrapApp() async {
     developer.log(line, name: 'BOXMATCH_ERROR');
 
     final repository = InMemorySurplusRepository();
-    await repository.ensureSeedData();
+    unawaited(repository.ensureSeedData());
 
     return AppDependencies(
       repository: repository,
