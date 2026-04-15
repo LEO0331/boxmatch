@@ -14,3 +14,7 @@ class PermissionDeniedException extends SurplusException {
 class ValidationException extends SurplusException {
   const ValidationException(super.message);
 }
+
+class ApiUnavailableException extends SurplusException {
+  const ApiUnavailableException(super.message);
+}

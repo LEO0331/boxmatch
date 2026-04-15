@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
+
+import '../i18n/app_strings.dart';
 
 class AppShell extends StatelessWidget {
   const AppShell({required this.child, required this.state, super.key});
@@ -32,31 +35,37 @@ class AppShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final index = _currentIndex();
-    final isWide = MediaQuery.sizeOf(context).width >= 900;
+    final width = MediaQuery.sizeOf(context).width;
+    final isWide = width >= 900;
+    final useRail = (kIsWeb || isWide) && width >= 760;
+    final s = AppStrings.of(context);
 
-    if (isWide) {
+    if (useRail) {
+      final isCompactRail = width < 1200;
       return Scaffold(
         body: Row(
           children: [
             NavigationRail(
               selectedIndex: index,
               onDestinationSelected: (next) => _navigate(context, next),
-              labelType: NavigationRailLabelType.all,
-              destinations: const [
+              labelType: isCompactRail
+                  ? NavigationRailLabelType.selected
+                  : NavigationRailLabelType.all,
+              destinations: [
                 NavigationRailDestination(
-                  icon: Icon(Icons.list_alt_outlined),
-                  selectedIcon: Icon(Icons.list_alt),
-                  label: Text('Listings'),
+                  icon: const Icon(Icons.list_alt_outlined),
+                  selectedIcon: const Icon(Icons.list_alt),
+                  label: Text(s.navListings),
                 ),
                 NavigationRailDestination(
-                  icon: Icon(Icons.map_outlined),
-                  selectedIcon: Icon(Icons.map),
-                  label: Text('Map'),
+                  icon: const Icon(Icons.map_outlined),
+                  selectedIcon: const Icon(Icons.map),
+                  label: Text(s.navMap),
                 ),
                 NavigationRailDestination(
-                  icon: Icon(Icons.storefront_outlined),
-                  selectedIcon: Icon(Icons.storefront),
-                  label: Text('Post'),
+                  icon: const Icon(Icons.storefront_outlined),
+                  selectedIcon: const Icon(Icons.storefront),
+                  label: Text(s.navPost),
                 ),
               ],
             ),
@@ -72,21 +81,21 @@ class AppShell extends StatelessWidget {
       bottomNavigationBar: NavigationBar(
         selectedIndex: index,
         onDestinationSelected: (next) => _navigate(context, next),
-        destinations: const [
+        destinations: [
           NavigationDestination(
-            icon: Icon(Icons.list_alt_outlined),
-            selectedIcon: Icon(Icons.list_alt),
-            label: 'Listings',
+            icon: const Icon(Icons.list_alt_outlined),
+            selectedIcon: const Icon(Icons.list_alt),
+            label: s.navListings,
           ),
           NavigationDestination(
-            icon: Icon(Icons.map_outlined),
-            selectedIcon: Icon(Icons.map),
-            label: 'Map',
+            icon: const Icon(Icons.map_outlined),
+            selectedIcon: const Icon(Icons.map),
+            label: s.navMap,
           ),
           NavigationDestination(
-            icon: Icon(Icons.storefront_outlined),
-            selectedIcon: Icon(Icons.storefront),
-            label: 'Post',
+            icon: const Icon(Icons.storefront_outlined),
+            selectedIcon: const Icon(Icons.storefront),
+            label: s.navPost,
           ),
         ],
       ),

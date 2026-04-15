@@ -1,0 +1,60 @@
+name: Release Checklist Gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: "Deploy target"
+        type: choice
+        options:
+          - production
+          - staging
+        required: true
+        default: production
+      smoke_passed:
+        description: "Smoke test passed"
+        type: boolean
+        required: true
+      rollback_ready:
+        description: "Rollback steps verified"
+        type: boolean
+        required: true
+      monitoring_ready:
+        description: "Health monitor + alerts verified"
+        type: boolean
+        required: true
+      stakeholder_approval:
+        description: "PM/Owner approval received"
+        type: boolean
+        required: true
+
+jobs:
+  checklist-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate release checklist
+        run: |
+          if [ "${{ inputs.smoke_passed }}" != "true" ] || \
+             [ "${{ inputs.rollback_ready }}" != "true" ] || \
+             [ "${{ inputs.monitoring_ready }}" != "true" ] || \
+             [ "${{ inputs.stakeholder_approval }}" != "true" ]; then
+            echo "Release checklist gate failed." >&2
+            exit 1
+          fi
+
+          echo "Release checklist gate passed for ${{ inputs.target_env }}"
+
+  deploy-prod:
+    if: ${{ inputs.target_env == 'production' }}
+    needs: checklist-gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render Deploy Hook (Production)
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
+            echo "Missing RENDER_DEPLOY_HOOK_URL secret" >&2
+            exit 1
+          fi
+          curl -fsS -X POST "$RENDER_DEPLOY_HOOK_URL"

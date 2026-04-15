@@ -49,6 +49,15 @@ abstract interface class SurplusRepository {
     required bool disclaimerAccepted,
   });
 
+  Future<List<Reservation>> listRecipientReservations({
+    required String claimerUid,
+  });
+
+  Future<void> cancelReservation({
+    required String reservationId,
+    required String claimerUid,
+  });
+
   Future<void> confirmPickup({
     required String listingId,
     required String reservationId,

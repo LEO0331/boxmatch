@@ -108,6 +108,7 @@ class InMemorySurplusRepository implements SurplusRepository {
       pickupEndAt: input.pickupEndAt,
       expiresAt: input.expiresAt,
       displayNameOptional: input.displayNameOptional,
+      templateId: input.templateId,
       visibility: input.visibility,
       status: ListingStatus.active,
       editTokenHash: hashToken(token),
@@ -151,6 +152,7 @@ class InMemorySurplusRepository implements SurplusRepository {
       pickupEndAt: input.pickupEndAt,
       expiresAt: input.expiresAt,
       displayNameOptional: input.displayNameOptional,
+      templateId: input.templateId,
       visibility: input.visibility,
       updatedAt: _now(),
       status: ListingStatus.active,
@@ -251,6 +253,63 @@ class InMemorySurplusRepository implements SurplusRepository {
     _emitListings();
     _emitReservations();
     return reservation;
+  }
+
+  @override
+  Future<List<Reservation>> listRecipientReservations({
+    required String claimerUid,
+  }) async {
+    final items =
+        _reservations.values
+            .where((item) => item.claimerUid == claimerUid)
+            .toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return items;
+  }
+
+  @override
+  Future<void> cancelReservation({
+    required String reservationId,
+    required String claimerUid,
+  }) async {
+    final reservation = _reservations[reservationId];
+    if (reservation == null) {
+      throw const ValidationException('Reservation not found.');
+    }
+    if (reservation.claimerUid != claimerUid) {
+      throw const PermissionDeniedException(
+        'Reservation does not belong to you.',
+      );
+    }
+    if (reservation.status != ReservationStatus.reserved) {
+      throw const ValidationException('Reservation is not active.');
+    }
+
+    final listing = _listings[reservation.listingId];
+    if (listing == null) {
+      throw const ValidationException('Listing not found.');
+    }
+
+    final now = _now();
+    final nextRemaining = (listing.quantityRemaining + reservation.qty).clamp(
+      0,
+      listing.quantityTotal,
+    );
+    final nextStatus = listing.isExpiredAt(now)
+        ? ListingStatus.expired
+        : (nextRemaining <= 0 ? ListingStatus.reserved : ListingStatus.active);
+
+    _reservations[reservationId] = reservation.copyWith(
+      status: ReservationStatus.cancelled,
+    );
+    _listings[listing.id] = listing.copyWith(
+      quantityRemaining: nextRemaining,
+      status: nextStatus,
+      updatedAt: now,
+    );
+
+    _emitReservations();
+    _emitListings();
   }
 
   @override

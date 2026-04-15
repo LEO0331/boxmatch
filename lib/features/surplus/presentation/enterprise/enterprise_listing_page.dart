@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../../../app/app_scope.dart';
+import '../../../../core/i18n/app_strings.dart';
+import '../../../../core/i18n/language_menu_button.dart';
+import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/load_error_view.dart';
 import '../../../../core/utils/date_time_formatters.dart';
 import '../../../surplus/domain/listing_input.dart';
 import '../../../surplus/domain/listing_visibility.dart';
@@ -8,11 +14,294 @@ import '../../../surplus/domain/reservation.dart';
 import '../../../surplus/domain/surplus_exceptions.dart';
 import '../../../surplus/domain/venue.dart';
 
+class _QuickPostTemplate {
+  const _QuickPostTemplate({
+    required this.id,
+    required this.nameEn,
+    required this.nameZh,
+    required this.itemType,
+    required this.description,
+    required this.defaultQuantity,
+    required this.pickupDurationMinutes,
+    required this.expireAfterMinutes,
+  });
+
+  final String id;
+  final String nameEn;
+  final String nameZh;
+  final String itemType;
+  final String description;
+  final int defaultQuantity;
+  final int pickupDurationMinutes;
+  final int expireAfterMinutes;
+}
+
+const _quickTemplates = <_QuickPostTemplate>[
+  _QuickPostTemplate(
+    id: 'default',
+    nameEn: 'Default Booth Meal',
+    nameZh: '預設展位餐盒',
+    itemType: 'Lunchbox',
+    description: 'Fresh boxed meal from booth surplus.',
+    defaultQuantity: 20,
+    pickupDurationMinutes: 90,
+    expireAfterMinutes: 120,
+  ),
+  _QuickPostTemplate(
+    id: 'lunchbox',
+    nameEn: 'Lunchbox Batch',
+    nameZh: '便當批次',
+    itemType: 'Lunchbox',
+    description: 'Fresh boxed meal from booth surplus.',
+    defaultQuantity: 20,
+    pickupDurationMinutes: 90,
+    expireAfterMinutes: 120,
+  ),
+  _QuickPostTemplate(
+    id: 'drinks',
+    nameEn: 'Bottled Drinks',
+    nameZh: '瓶裝飲料',
+    itemType: 'Drink',
+    description: 'Sealed bottled drinks, room temperature.',
+    defaultQuantity: 30,
+    pickupDurationMinutes: 120,
+    expireAfterMinutes: 180,
+  ),
+  _QuickPostTemplate(
+    id: 'snack',
+    nameEn: 'Snack Packs',
+    nameZh: '點心包',
+    itemType: 'Snack Pack',
+    description: 'Unopened snack package from event counter.',
+    defaultQuantity: 15,
+    pickupDurationMinutes: 90,
+    expireAfterMinutes: 150,
+  ),
+  _QuickPostTemplate(
+    id: 'vegan',
+    nameEn: 'Vegan Box',
+    nameZh: '蔬食餐盒',
+    itemType: 'Vegan Lunchbox',
+    description: 'Sealed vegetarian meal boxes.',
+    defaultQuantity: 12,
+    pickupDurationMinutes: 80,
+    expireAfterMinutes: 120,
+  ),
+  _QuickPostTemplate(
+    id: 'fruit',
+    nameEn: 'Fruit Cups',
+    nameZh: '水果杯',
+    itemType: 'Fruit Cup',
+    description: 'Fresh cut fruit cups, keep chilled.',
+    defaultQuantity: 18,
+    pickupDurationMinutes: 60,
+    expireAfterMinutes: 90,
+  ),
+  _QuickPostTemplate(
+    id: 'bakery',
+    nameEn: 'Bakery Pack',
+    nameZh: '烘焙麵包',
+    itemType: 'Bread / Bakery',
+    description: 'Unopened bread and pastry packs from booth stock.',
+    defaultQuantity: 14,
+    pickupDurationMinutes: 100,
+    expireAfterMinutes: 180,
+  ),
+  _QuickPostTemplate(
+    id: 'water',
+    nameEn: 'Water Bottles',
+    nameZh: '瓶裝水',
+    itemType: 'Water',
+    description: 'Sealed bottled water, room temperature.',
+    defaultQuantity: 40,
+    pickupDurationMinutes: 150,
+    expireAfterMinutes: 240,
+  ),
+];
+
+const _defaultTemplateId = 'default';
+
+const _venueDefaultPickupPoint = <String, ({String zh, String en})>{
+  'taipei-nangang-exhibition-center-hall-1': (
+    zh: '南港展覽館一館 服務台旁',
+    en: 'Hall 1 service desk side',
+  ),
+  'taipei-nangang-exhibition-center-hall-2': (
+    zh: '南港展覽館二館 主入口服務台',
+    en: 'Hall 2 main entrance service desk',
+  ),
+  'songshan-cultural-park': (
+    zh: '松山文創園區 服務台',
+    en: 'Songshan Creative Park service desk',
+  ),
+};
+
+class _TemplatePerformance {
+  const _TemplatePerformance({
+    required this.templateId,
+    required this.templateName,
+    required this.totalReservations,
+    required this.completedReservations,
+    required this.cancelledReservations,
+    required this.completedRate,
+    required this.cancelledRate,
+  });
+
+  final String templateId;
+  final String templateName;
+  final int totalReservations;
+  final int completedReservations;
+  final int cancelledReservations;
+  final double completedRate;
+  final double cancelledRate;
+}
+
+class TemplatePerformanceSummary {
+  const TemplatePerformanceSummary({
+    required this.templateId,
+    required this.totalReservations,
+    required this.completedReservations,
+    required this.cancelledReservations,
+    required this.completedRate,
+    required this.cancelledRate,
+  });
+
+  final String templateId;
+  final int totalReservations;
+  final int completedReservations;
+  final int cancelledReservations;
+  final double completedRate;
+  final double cancelledRate;
+}
+
+@visibleForTesting
+List<String> collectRiskWarningsForListingInput(
+  ListingInput input, {
+  DateTime? now,
+}) {
+  final warnings = <String>[];
+  final base = now ?? DateTime.now();
+  final pickupWindow = input.pickupEndAt.difference(input.pickupStartAt);
+  final untilStart = input.pickupStartAt.difference(base);
+  final expireAfterStart = input.expiresAt.difference(input.pickupStartAt);
+
+  if (pickupWindow < const Duration(minutes: 45)) {
+    warnings.add(
+      'Pickup window is short (${pickupWindow.inMinutes} min). Recommend at least 45 min.',
+    );
+  }
+  if (untilStart < const Duration(minutes: 20)) {
+    warnings.add(
+      'Pickup start is very soon (${untilStart.inMinutes} min). Recipients may not arrive in time.',
+    );
+  }
+  if (expireAfterStart < const Duration(minutes: 60)) {
+    warnings.add(
+      'Expiry is close to pickup start (${expireAfterStart.inMinutes} min). Consider extending expiry.',
+    );
+  }
+
+  return warnings;
+}
+
+@visibleForTesting
+String resolveTemplateIdForListingMap(Map<String, dynamic> map) {
+  final rawTemplateId = (map['templateId'] as String?)?.trim();
+  if (rawTemplateId != null &&
+      rawTemplateId.isNotEmpty &&
+      _quickTemplates.any((template) => template.id == rawTemplateId)) {
+    return rawTemplateId;
+  }
+
+  final itemType = (map['itemType'] as String? ?? '').trim().toLowerCase();
+  final description = (map['description'] as String? ?? '')
+      .trim()
+      .toLowerCase();
+  for (final template in _quickTemplates.where(
+    (template) => template.id != _defaultTemplateId,
+  )) {
+    if (itemType == template.itemType.trim().toLowerCase() &&
+        description == template.description.trim().toLowerCase()) {
+      return template.id;
+    }
+  }
+  return _defaultTemplateId;
+}
+
+@visibleForTesting
+List<TemplatePerformanceSummary> computeTemplatePerformance({
+  required Map<String, String> listingToTemplate,
+  required Iterable<Map<String, dynamic>> reservations,
+}) {
+  final total = <String, int>{};
+  final completed = <String, int>{};
+  final cancelled = <String, int>{};
+
+  for (final data in reservations) {
+    final listingId = (data['listingId'] as String?) ?? '';
+    final templateId = listingToTemplate[listingId];
+    if (templateId == null || templateId.isEmpty) {
+      continue;
+    }
+    final status = (data['status'] as String?) ?? 'reserved';
+    total[templateId] = (total[templateId] ?? 0) + 1;
+    if (status == 'completed') {
+      completed[templateId] = (completed[templateId] ?? 0) + 1;
+    }
+    if (status == 'cancelled') {
+      cancelled[templateId] = (cancelled[templateId] ?? 0) + 1;
+    }
+  }
+
+  final list =
+      _quickTemplates
+          .map((template) {
+            final totalReservations = total[template.id] ?? 0;
+            final completedReservations = completed[template.id] ?? 0;
+            final cancelledReservations = cancelled[template.id] ?? 0;
+            final completedRate = totalReservations == 0
+                ? 0.0
+                : completedReservations / totalReservations.toDouble();
+            final cancelledRate = totalReservations == 0
+                ? 0.0
+                : cancelledReservations / totalReservations.toDouble();
+            return TemplatePerformanceSummary(
+              templateId: template.id,
+              totalReservations: totalReservations,
+              completedReservations: completedReservations,
+              cancelledReservations: cancelledReservations,
+              completedRate: completedRate,
+              cancelledRate: cancelledRate,
+            );
+          })
+          .where((item) => item.totalReservations > 0)
+          .toList()
+        ..sort((a, b) {
+          final completedCmp = b.completedRate.compareTo(a.completedRate);
+          if (completedCmp != 0) {
+            return completedCmp;
+          }
+          final cancelledCmp = a.cancelledRate.compareTo(b.cancelledRate);
+          if (cancelledCmp != 0) {
+            return cancelledCmp;
+          }
+          return b.totalReservations.compareTo(a.totalReservations);
+        });
+  return list;
+}
+
 class EnterpriseListingPage extends StatefulWidget {
-  const EnterpriseListingPage({super.key, this.listingId, this.token});
+  const EnterpriseListingPage({
+    super.key,
+    this.listingId,
+    this.token,
+    this.templatePerformanceLoader,
+  });
 
   final String? listingId;
   final String? token;
+  final Future<List<TemplatePerformanceSummary>> Function()?
+  templatePerformanceLoader;
 
   @override
   State<EnterpriseListingPage> createState() => _EnterpriseListingPageState();
@@ -28,6 +317,9 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
   final Map<String, TextEditingController> _pickupCodeControllers = {};
 
   String? _selectedVenueId;
+  String? _selectedTemplateId;
+  String? _lastAutoPickupPoint;
+  Future<List<_TemplatePerformance>>? _templatePerformanceFuture;
   DateTime _pickupStartAt = DateTime.now().add(const Duration(minutes: 20));
   DateTime _pickupEndAt = DateTime.now().add(const Duration(hours: 2));
   DateTime _expiresAt = DateTime.now().add(
@@ -39,6 +331,7 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
   String? _editToken;
   String? _createdEditLink;
   String? _errorMessage;
+  String? _riskHintMessage;
   bool _tokenRevoked = false;
 
   bool get _isEditMode => widget.listingId != null;
@@ -61,7 +354,9 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
     super.didChangeDependencies();
     if (!_initialized) {
       _initialized = true;
+      _applyDefaultTemplate();
       _bootstrap();
+      _templatePerformanceFuture = _loadTemplatePerformance();
     }
   }
 
@@ -80,14 +375,32 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
     }
 
     final dependencies = AppScope.of(context);
-    final canEdit = await dependencies.repository.canEditListing(
-      listingId: listingId,
-      token: token,
-    );
+    late final bool canEdit;
+    try {
+      canEdit = await dependencies.repository.canEditListing(
+        listingId: listingId,
+        token: token,
+      );
+    } on ApiUnavailableException {
+      setState(() {
+        _errorMessage = 'Cannot reach API';
+      });
+      return;
+    } on SurplusException {
+      setState(() {
+        _errorMessage = 'Cannot reach API';
+      });
+      return;
+    } catch (_) {
+      setState(() {
+        _errorMessage = 'Cannot reach API';
+      });
+      return;
+    }
 
     if (!canEdit) {
       setState(() {
-        _errorMessage = 'Invalid or revoked edit token.';
+        _errorMessage = 'Invalid token';
       });
       return;
     }
@@ -103,6 +416,7 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
     setState(() {
       _editToken = token;
       _selectedVenueId = listing.venueId;
+      _selectedTemplateId = listing.templateId ?? _defaultTemplateId;
       _pickupPointController.text = listing.pickupPointText;
       _itemTypeController.text = listing.itemType;
       _descriptionController.text = listing.description;
@@ -113,6 +427,155 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
       _expiresAt = listing.expiresAt;
       _disclaimerAccepted = true;
     });
+  }
+
+  void _applyTemplate(_QuickPostTemplate template) {
+    final now = DateTime.now();
+    setState(() {
+      _selectedTemplateId = template.id;
+      _itemTypeController.text = template.itemType;
+      _descriptionController.text = template.description;
+      _quantityController.text = template.defaultQuantity.toString();
+      _pickupStartAt = now.add(const Duration(minutes: 20));
+      _pickupEndAt = _pickupStartAt.add(
+        Duration(minutes: template.pickupDurationMinutes),
+      );
+      _expiresAt = _pickupStartAt.add(
+        Duration(minutes: template.expireAfterMinutes),
+      );
+    });
+  }
+
+  void _applyDefaultTemplate() {
+    final defaultTemplate = _quickTemplates.firstWhere(
+      (template) => template.id == _defaultTemplateId,
+      orElse: () => _quickTemplates.first,
+    );
+    _applyTemplate(defaultTemplate);
+  }
+
+  String? _defaultPickupPointForVenue({
+    required String? venueId,
+    required bool isZh,
+  }) {
+    if (venueId == null) {
+      return null;
+    }
+    final preset = _venueDefaultPickupPoint[venueId];
+    if (preset == null) {
+      return null;
+    }
+    return isZh ? preset.zh : preset.en;
+  }
+
+  void _applyVenueDefaultPickupPoint({
+    required String? venueId,
+    required bool isZh,
+    bool force = false,
+  }) {
+    final defaultPickup = _defaultPickupPointForVenue(
+      venueId: venueId,
+      isZh: isZh,
+    );
+    if (defaultPickup == null) {
+      return;
+    }
+    final current = _pickupPointController.text.trim();
+    if (force || current.isEmpty || current == (_lastAutoPickupPoint ?? '')) {
+      _pickupPointController.text = defaultPickup;
+      _lastAutoPickupPoint = defaultPickup;
+    }
+  }
+
+  List<String> _collectRiskWarnings(ListingInput input) {
+    return collectRiskWarningsForListingInput(input);
+  }
+
+  Future<bool> _confirmRiskWarnings(List<String> warnings) async {
+    if (warnings.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _riskHintMessage = null;
+        });
+      }
+      return true;
+    }
+
+    final isZh = AppScope.of(context).localeController.isZhTw;
+    final summary = warnings.take(3).join(' / ');
+    if (mounted) {
+      setState(() {
+        _riskHintMessage = isZh
+            ? '發佈風險提醒：$summary'
+            : 'Pre-publish risk hint: $summary';
+      });
+    }
+    return true;
+  }
+
+  String _resolveTemplateIdFromListingMap(Map<String, dynamic> map) {
+    return resolveTemplateIdForListingMap(map);
+  }
+
+  Future<List<_TemplatePerformance>> _loadTemplatePerformance() async {
+    final injectedLoader = widget.templatePerformanceLoader;
+    if (injectedLoader != null) {
+      final computed = await injectedLoader();
+      return _mapTemplatePerformanceSummaries(computed);
+    }
+
+    if (!AppScope.of(context).usingFirebase) {
+      return const <_TemplatePerformance>[];
+    }
+
+    try {
+      final firestore = FirebaseFirestore.instance;
+      final listingsSnap = await firestore
+          .collection('listings')
+          .limit(500)
+          .get();
+      final reservationsSnap = await firestore
+          .collection('reservations')
+          .limit(2000)
+          .get();
+
+      final listingToTemplate = <String, String>{};
+      for (final doc in listingsSnap.docs) {
+        listingToTemplate[doc.id] = _resolveTemplateIdFromListingMap(
+          doc.data(),
+        );
+      }
+
+      final computed = computeTemplatePerformance(
+        listingToTemplate: listingToTemplate,
+        reservations: reservationsSnap.docs.map((doc) => doc.data()),
+      );
+      return _mapTemplatePerformanceSummaries(computed);
+    } catch (_) {
+      return const <_TemplatePerformance>[];
+    }
+  }
+
+  List<_TemplatePerformance> _mapTemplatePerformanceSummaries(
+    List<TemplatePerformanceSummary> computed,
+  ) {
+    return computed.map((item) {
+      final template = _quickTemplates.firstWhere(
+        (t) => t.id == item.templateId,
+        orElse: () => _quickTemplates.first,
+      );
+      return _TemplatePerformance(
+        templateId: item.templateId,
+        templateName: AppScope.of(context).localeController.isZhTw
+            ? template.nameZh
+            : template.nameEn,
+        totalReservations: item.totalReservations,
+        completedReservations: item.completedReservations,
+        cancelledReservations: item.cancelledReservations,
+        completedRate: item.completedRate,
+        cancelledRate: item.cancelledRate,
+      );
+    }).toList();
   }
 
   Future<void> _submit() async {
@@ -127,10 +590,6 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
       ).showSnackBar(const SnackBar(content: Text('Please select a venue.')));
       return;
     }
-
-    setState(() {
-      _busy = true;
-    });
 
     final dependencies = AppScope.of(context);
 
@@ -148,9 +607,20 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
       displayNameOptional: _displayNameController.text.trim().isEmpty
           ? null
           : _displayNameController.text.trim(),
+      templateId: _selectedTemplateId ?? _defaultTemplateId,
       visibility: ListingVisibility.minimal,
       disclaimerAccepted: _disclaimerAccepted,
     );
+
+    final warnings = _collectRiskWarnings(input);
+    final proceed = await _confirmRiskWarnings(warnings);
+    if (!proceed || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _busy = true;
+    });
 
     try {
       if (_isEditMode) {
@@ -211,10 +681,64 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
     return uri.toString();
   }
 
+  Future<void> _copyEditLink() async {
+    final link = _createdEditLink;
+    if (link == null || link.isEmpty) {
+      return;
+    }
+
+    await Clipboard.setData(ClipboardData(text: link));
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Secure edit link copied to clipboard.')),
+    );
+  }
+
+  Future<bool> _showConfirmDialog({
+    required String title,
+    required String content,
+    required String confirmText,
+  }) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(content),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(confirmText),
+          ),
+        ],
+      ),
+    );
+
+    return result ?? false;
+  }
+
   Future<void> _rotateToken() async {
     final listingId = widget.listingId;
     final token = _editToken;
     if (listingId == null || token == null || token.isEmpty) {
+      return;
+    }
+
+    final allowed = await _showConfirmDialog(
+      title: 'Rotate edit token?',
+      content:
+          'Your old edit link will stop working immediately. Copy and store the new one safely.',
+      confirmText: 'Rotate',
+    );
+    if (!allowed) {
+      return;
+    }
+    if (!mounted) {
       return;
     }
 
@@ -253,6 +777,19 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
     final listingId = widget.listingId;
     final token = _editToken;
     if (listingId == null || token == null || token.isEmpty) {
+      return;
+    }
+
+    final allowed = await _showConfirmDialog(
+      title: 'Revoke edit token?',
+      content:
+          'This action cannot be undone. You will lose edit access from this link.',
+      confirmText: 'Revoke',
+    );
+    if (!allowed) {
+      return;
+    }
+    if (!mounted) {
       return;
     }
 
@@ -366,276 +903,605 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
   @override
   Widget build(BuildContext context) {
     final repository = AppScope.of(context).repository;
+    final s = AppStrings.of(context);
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_isEditMode ? 'Edit listing' : 'Post listing'),
+        title: Text(
+          _isEditMode ? s.enterpriseEditTitle : s.enterprisePostTitle,
+        ),
+        actions: const [LanguageMenuButton()],
       ),
-      body: StreamBuilder<List<Venue>>(
-        stream: repository.watchVenues(),
-        builder: (context, snapshot) {
-          final venues = snapshot.data ?? const <Venue>[];
+      body: _desktopFrame(
+        context,
+        StreamBuilder<List<Venue>>(
+          stream: repository.watchVenues(),
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return LoadErrorView(
+                title: s.genericLoadErrorTitle,
+                message: s.genericLoadErrorBody,
+                retryLabel: s.retry,
+                onRetry: () => setState(() {}),
+              );
+            }
 
-          if (_selectedVenueId == null && venues.isNotEmpty) {
-            _selectedVenueId = venues.first.id;
-          }
+            final venues = snapshot.data ?? const <Venue>[];
 
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              if (_errorMessage != null)
-                Card(
-                  color: Theme.of(context).colorScheme.errorContainer,
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Text(_errorMessage!),
-                  ),
-                ),
-              if (_createdEditLink != null)
-                Card(
-                  color: Theme.of(context).colorScheme.surfaceContainerHigh,
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Save this edit link securely:'),
-                        const SizedBox(height: 8),
-                        SelectableText(_createdEditLink!),
-                      ],
+            if (_selectedVenueId == null && venues.isNotEmpty) {
+              _selectedVenueId = venues.first.id;
+              _applyVenueDefaultPickupPoint(
+                venueId: _selectedVenueId,
+                isZh: AppScope.of(context).localeController.isZhTw,
+              );
+            }
+
+            return ListView(
+              padding: const EdgeInsets.all(18),
+              children: [
+                if (_errorMessage != null)
+                  Card(
+                    color: Theme.of(context).colorScheme.errorContainer,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Text(_errorMessage!),
                     ),
                   ),
-                ),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        DropdownButtonFormField<String>(
-                          initialValue: _selectedVenueId,
-                          items: venues
-                              .map(
-                                (venue) => DropdownMenuItem(
-                                  value: venue.id,
-                                  child: Text(venue.name),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: _busy
-                              ? null
-                              : (value) {
-                                  setState(() {
-                                    _selectedVenueId = value;
-                                  });
-                                },
-                          decoration: const InputDecoration(labelText: 'Venue'),
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: _pickupPointController,
-                          decoration: const InputDecoration(
-                            labelText: 'Pickup point (booth / gate)',
-                          ),
-                          validator: (value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return 'Pickup point is required.';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: _itemTypeController,
-                          decoration: const InputDecoration(
-                            labelText: 'Item type',
-                          ),
-                          validator: (value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return 'Item type is required.';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: _descriptionController,
-                          maxLines: 3,
-                          decoration: const InputDecoration(
-                            labelText: 'Simple description',
-                          ),
-                          validator: (value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return 'Description is required.';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: _quantityController,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
-                            labelText: 'Quantity',
-                          ),
-                          validator: (value) {
-                            final parsed = int.tryParse(value ?? '');
-                            if (parsed == null || parsed <= 0) {
-                              return 'Enter a quantity of at least 1.';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: _displayNameController,
-                          decoration: const InputDecoration(
-                            labelText: 'Display name (optional)',
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Pickup start'),
-                          subtitle: Text(formatDateTime(_pickupStartAt)),
-                          trailing: IconButton(
-                            onPressed: _busy
-                                ? null
-                                : () => _pickDateTime(
-                                    initial: _pickupStartAt,
-                                    onPicked: (value) {
-                                      setState(() {
-                                        _pickupStartAt = value;
-                                      });
-                                    },
-                                  ),
-                            icon: const Icon(Icons.schedule),
-                          ),
-                        ),
-                        ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Pickup end'),
-                          subtitle: Text(formatDateTime(_pickupEndAt)),
-                          trailing: IconButton(
-                            onPressed: _busy
-                                ? null
-                                : () => _pickDateTime(
-                                    initial: _pickupEndAt,
-                                    onPicked: (value) {
-                                      setState(() {
-                                        _pickupEndAt = value;
-                                      });
-                                    },
-                                  ),
-                            icon: const Icon(Icons.schedule_send_outlined),
-                          ),
-                        ),
-                        ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Expires at'),
-                          subtitle: Text(formatDateTime(_expiresAt)),
-                          trailing: IconButton(
-                            onPressed: _busy
-                                ? null
-                                : () => _pickDateTime(
-                                    initial: _expiresAt,
-                                    onPicked: (value) {
-                                      setState(() {
-                                        _expiresAt = value;
-                                      });
-                                    },
-                                  ),
-                            icon: const Icon(Icons.hourglass_bottom_outlined),
-                          ),
-                        ),
-                        CheckboxListTile(
-                          contentPadding: EdgeInsets.zero,
-                          value: _disclaimerAccepted,
-                          onChanged: _busy
-                              ? null
-                              : (value) {
-                                  setState(() {
-                                    _disclaimerAccepted = value ?? false;
-                                  });
-                                },
-                          title: const Text(
-                            'I understand this platform only matches donors and recipients and does not guarantee food safety.',
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        FilledButton.icon(
-                          onPressed: _busy || _tokenRevoked ? null : _submit,
-                          icon: _busy
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.save_outlined),
-                          label: Text(
-                            _isEditMode ? 'Update listing' : 'Post listing',
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              if (_isEditMode && _errorMessage == null) ...[
-                const SizedBox(height: 12),
+                if (_createdEditLink != null) _buildSecureLinkCard(context),
+                if (!_isEditMode) _buildTemplateCard(context),
+                _buildTrustAndSafetyCard(context),
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Token controls'),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          children: [
-                            OutlinedButton.icon(
-                              onPressed: _busy || _tokenRevoked
-                                  ? null
-                                  : _rotateToken,
-                              icon: const Icon(Icons.key_outlined),
-                              label: const Text('Rotate token'),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            AppScope.of(context).localeController.isZhTw
+                                ? '1) 場館與交付資訊'
+                                : '1) Venue & handoff info',
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
+                          const SizedBox(height: 8),
+                          DropdownButtonFormField<String>(
+                            initialValue: _selectedVenueId,
+                            items: venues
+                                .map(
+                                  (venue) => DropdownMenuItem(
+                                    value: venue.id,
+                                    child: Text(venue.name),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: _busy
+                                ? null
+                                : (value) {
+                                    setState(() {
+                                      _selectedVenueId = value;
+                                      _applyVenueDefaultPickupPoint(
+                                        venueId: value,
+                                        isZh: AppScope.of(
+                                          context,
+                                        ).localeController.isZhTw,
+                                      );
+                                    });
+                                  },
+                            decoration: const InputDecoration(
+                              labelText: 'Venue',
                             ),
-                            OutlinedButton.icon(
-                              onPressed: _busy || _tokenRevoked
+                          ),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: _pickupPointController,
+                            decoration: const InputDecoration(
+                              labelText: 'Pickup point (booth / gate)',
+                            ),
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return 'Pickup point is required.';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 8),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: OutlinedButton.icon(
+                              onPressed: _busy
                                   ? null
-                                  : _revokeToken,
-                              icon: const Icon(Icons.block_outlined),
-                              label: const Text('Revoke token'),
+                                  : () => setState(() {
+                                      _applyVenueDefaultPickupPoint(
+                                        venueId: _selectedVenueId,
+                                        isZh: AppScope.of(
+                                          context,
+                                        ).localeController.isZhTw,
+                                        force: true,
+                                      );
+                                    }),
+                              icon: const Icon(Icons.place_outlined),
+                              label: Text(
+                                AppScope.of(context).localeController.isZhTw
+                                    ? '套用場館預設取餐點'
+                                    : 'Use venue default pickup point',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFF7E8),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: const Color(0xFFE5C27A),
+                              ),
+                            ),
+                            child: Text(
+                              AppScope.of(context).localeController.isZhTw
+                                  ? '提醒：僅限公開展場/服務台交付，請勿要求私下移動地點。'
+                                  : 'Safety: use only public venue/service-desk handoff. Do not request private location changes.',
+                              style: const TextStyle(color: Color(0xFF7A4A00)),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            AppScope.of(context).localeController.isZhTw
+                                ? '2) 品項資訊'
+                                : '2) Item details',
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
+                          const SizedBox(height: 8),
+                          TextFormField(
+                            controller: _itemTypeController,
+                            decoration: const InputDecoration(
+                              labelText: 'Item type',
+                            ),
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return 'Item type is required.';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: _descriptionController,
+                            maxLines: 3,
+                            decoration: const InputDecoration(
+                              labelText: 'Simple description',
+                            ),
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return 'Description is required.';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: _quantityController,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: 'Quantity',
+                            ),
+                            validator: (value) {
+                              final parsed = int.tryParse(value ?? '');
+                              if (parsed == null || parsed <= 0) {
+                                return 'Enter a quantity of at least 1.';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: _displayNameController,
+                            decoration: const InputDecoration(
+                              labelText: 'Display name (optional)',
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            AppScope.of(context).localeController.isZhTw
+                                ? '3) 時段設定'
+                                : '3) Time windows',
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
+                          const SizedBox(height: 8),
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Pickup start'),
+                            subtitle: Text(formatDateTime(_pickupStartAt)),
+                            trailing: IconButton(
+                              onPressed: _busy
+                                  ? null
+                                  : () => _pickDateTime(
+                                      initial: _pickupStartAt,
+                                      onPicked: (value) {
+                                        setState(() {
+                                          _pickupStartAt = value;
+                                        });
+                                      },
+                                    ),
+                              icon: const Icon(Icons.schedule),
+                            ),
+                          ),
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Pickup end'),
+                            subtitle: Text(formatDateTime(_pickupEndAt)),
+                            trailing: IconButton(
+                              onPressed: _busy
+                                  ? null
+                                  : () => _pickDateTime(
+                                      initial: _pickupEndAt,
+                                      onPicked: (value) {
+                                        setState(() {
+                                          _pickupEndAt = value;
+                                        });
+                                      },
+                                    ),
+                              icon: const Icon(Icons.schedule_send_outlined),
+                            ),
+                          ),
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Expires at'),
+                            subtitle: Text(formatDateTime(_expiresAt)),
+                            trailing: IconButton(
+                              onPressed: _busy
+                                  ? null
+                                  : () => _pickDateTime(
+                                      initial: _expiresAt,
+                                      onPicked: (value) {
+                                        setState(() {
+                                          _expiresAt = value;
+                                        });
+                                      },
+                                    ),
+                              icon: const Icon(Icons.hourglass_bottom_outlined),
+                            ),
+                          ),
+                          CheckboxListTile(
+                            contentPadding: EdgeInsets.zero,
+                            value: _disclaimerAccepted,
+                            onChanged: _busy
+                                ? null
+                                : (value) {
+                                    setState(() {
+                                      _disclaimerAccepted = value ?? false;
+                                    });
+                                  },
+                            title: Text(s.reserveDisclaimer),
+                          ),
+                          if ((_riskHintMessage ?? '').isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFF7E8),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: const Color(0xFFE5C27A),
+                                ),
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Padding(
+                                    padding: EdgeInsets.only(top: 2, right: 6),
+                                    child: Icon(
+                                      Icons.warning_amber_rounded,
+                                      size: 16,
+                                      color: Color(0xFFB26A00),
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: Text(
+                                      _riskHintMessage!,
+                                      style: const TextStyle(
+                                        color: Color(0xFF7A4A00),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
-                        ),
-                      ],
+                          const SizedBox(height: 12),
+                          FilledButton.icon(
+                            onPressed: _busy || _tokenRevoked ? null : _submit,
+                            icon: _busy
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.save_outlined),
+                            label: Text(
+                              _isEditMode ? 'Update listing' : 'Post listing',
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            AppScope.of(context).localeController.isZhTw
+                                ? 'FAQ：僅於公開展場服務台交付；若場內臨時改點，請重新更新列表說明。'
+                                : 'FAQ: handoff must stay at public venue desk; if pickup point changes, update listing details first.',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
-                const SizedBox(height: 12),
-                if ((_editToken ?? '').isNotEmpty)
-                  _ReservationAdminSection(
-                    listingId: widget.listingId!,
-                    token: _editToken!,
-                    onConfirmPickup: _confirmPickup,
-                    pickupCodeControllers: _pickupCodeControllers,
-                  ),
+                if (_isEditMode && _errorMessage == null) ...[
+                  const SizedBox(height: 12),
+                  _buildTokenControlsCard(),
+                  const SizedBox(height: 12),
+                  if ((_editToken ?? '').isNotEmpty)
+                    _ReservationAdminSection(
+                      listingId: widget.listingId!,
+                      token: _editToken!,
+                      onConfirmPickup: _confirmPickup,
+                      pickupCodeControllers: _pickupCodeControllers,
+                    ),
+                ],
               ],
-            ],
-          );
-        },
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _desktopFrame(BuildContext context, Widget child) {
+    final width = MediaQuery.sizeOf(context).width;
+    if (width < 1100) {
+      return child;
+    }
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1040),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: child,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTemplateCard(BuildContext context) {
+    final isZh = AppScope.of(context).localeController.isZhTw;
+    final isDefaultSelected = _selectedTemplateId == _defaultTemplateId;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              isZh ? '快速模板（加速發佈）' : 'Quick templates (faster post)',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              isZh
+                  ? '可先選範本，再微調欄位。想回到標準版可按「回復預設」。'
+                  : 'Pick a template first, then fine-tune fields. Use reset to go back to default.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: [
+                FilledButton.tonalIcon(
+                  onPressed: _busy ? null : _applyDefaultTemplate,
+                  icon: const Icon(Icons.restart_alt_outlined),
+                  label: Text(
+                    isZh
+                        ? (isDefaultSelected ? '目前為預設' : '回復預設')
+                        : (isDefaultSelected
+                              ? 'Default active'
+                              : 'Reset to default'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _quickTemplates
+                  .map(
+                    (template) => ChoiceChip(
+                      selected: _selectedTemplateId == template.id,
+                      onSelected: (_) => _applyTemplate(template),
+                      label: Text(isZh ? template.nameZh : template.nameEn),
+                    ),
+                  )
+                  .toList(),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    isZh ? '模板成效（近期）' : 'Template performance (recent)',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ),
+                IconButton(
+                  tooltip: isZh ? '重新整理統計' : 'Refresh performance',
+                  onPressed: _busy
+                      ? null
+                      : () {
+                          setState(() {
+                            _templatePerformanceFuture =
+                                _loadTemplatePerformance();
+                          });
+                        },
+                  icon: const Icon(Icons.refresh),
+                ),
+              ],
+            ),
+            FutureBuilder<List<_TemplatePerformance>>(
+              future: _templatePerformanceFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8),
+                    child: LinearProgressIndicator(minHeight: 2),
+                  );
+                }
+                final items = snapshot.data ?? const <_TemplatePerformance>[];
+                if (items.isEmpty) {
+                  return Text(
+                    isZh
+                        ? '目前樣本不足，發佈並完成更多預約後會顯示成效排行。'
+                        : 'Not enough sample yet. Performance ranking appears after more reservations.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  );
+                }
+                return Column(
+                  children: items.take(3).map((item) {
+                    final completedPercent = (item.completedRate * 100)
+                        .toStringAsFixed(0);
+                    final cancelledPercent = (item.cancelledRate * 100)
+                        .toStringAsFixed(0);
+                    return ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(
+                        Icons.insights_outlined,
+                        color: Color(0xFF2D6A4F),
+                      ),
+                      title: Text(item.templateName),
+                      subtitle: Text(
+                        isZh
+                            ? '完成率 $completedPercent% · 取消率 $cancelledPercent% · 樣本 ${item.totalReservations}'
+                            : 'Completion $completedPercent% · Cancel $cancelledPercent% · Sample ${item.totalReservations}',
+                      ),
+                    );
+                  }).toList(),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTrustAndSafetyCard(BuildContext context) {
+    final isZh = AppScope.of(context).localeController.isZhTw;
+    return Card(
+      color: BoxmatchColors.warmSurfaceAlt,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.shield_outlined, color: BoxmatchColors.seed),
+                const SizedBox(width: 8),
+                Text(
+                  isZh ? '現場交付安全守則' : 'Public handoff safety rules',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              isZh
+                  ? '1) 僅限公開展場/服務台交付  2) 不接受私下移動地點  3) 發佈資訊請保持可核對'
+                  : '1) Public venue/service desk only  2) No private location changes  3) Keep listing info verifiable',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSecureLinkCard(BuildContext context) {
+    final isZh = AppScope.of(context).localeController.isZhTw;
+
+    return Card(
+      color: Theme.of(context).colorScheme.surfaceContainerHigh,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(isZh ? '請妥善保存此編輯連結：' : 'Save this edit link securely:'),
+            const SizedBox(height: 8),
+            SelectableText(_createdEditLink!),
+            const SizedBox(height: 8),
+            Text(
+              isZh
+                  ? '安全提醒：此連結即擁有編輯權限，請勿公開分享。'
+                  : 'Security note: anyone with this link can edit your listing.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _copyEditLink,
+              icon: const Icon(Icons.copy_all_outlined),
+              label: Text(isZh ? '複製連結' : 'Copy link'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTokenControlsCard() {
+    final isZh = AppScope.of(context).localeController.isZhTw;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(isZh ? 'Token 安全控管' : 'Token controls'),
+            const SizedBox(height: 6),
+            Text(
+              isZh
+                  ? '建議活動結束後立即 Rotate 或 Revoke，降低外流風險。'
+                  : 'Rotate or revoke after event day to reduce token leakage risk.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _busy || _tokenRevoked ? null : _rotateToken,
+                  icon: const Icon(Icons.key_outlined),
+                  label: Text(isZh ? 'Rotate token' : 'Rotate token'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _busy || _tokenRevoked ? null : _revokeToken,
+                  icon: const Icon(Icons.block_outlined),
+                  label: Text(isZh ? 'Revoke token' : 'Revoke token'),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _ReservationAdminSection extends StatelessWidget {
+class _ReservationAdminSection extends StatefulWidget {
   const _ReservationAdminSection({
     required this.listingId,
     required this.token,
@@ -649,8 +1515,26 @@ class _ReservationAdminSection extends StatelessWidget {
   final Map<String, TextEditingController> pickupCodeControllers;
 
   @override
+  State<_ReservationAdminSection> createState() =>
+      _ReservationAdminSectionState();
+}
+
+enum _ReservationFilter { all, pending, confirmed }
+
+class _ReservationAdminSectionState extends State<_ReservationAdminSection> {
+  _ReservationFilter _filter = _ReservationFilter.all;
+
+  String _shortReservationId(String id) {
+    if (id.isEmpty) {
+      return 'unknown';
+    }
+    return id.length <= 6 ? id : id.substring(0, 6);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final repository = AppScope.of(context).repository;
+    final s = AppStrings.of(context);
 
     return Card(
       child: Padding(
@@ -658,12 +1542,12 @@ class _ReservationAdminSection extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Reservations'),
+            Text(s.reservationSection),
             const SizedBox(height: 8),
             StreamBuilder<List<Reservation>>(
               stream: repository.watchReservationsForListing(
-                listingId: listingId,
-                token: token,
+                listingId: widget.listingId,
+                token: widget.token,
               ),
               builder: (context, snapshot) {
                 final reservations = snapshot.data ?? const <Reservation>[];
@@ -675,48 +1559,119 @@ class _ReservationAdminSection extends StatelessWidget {
                   return Text('Unable to load reservations: ${snapshot.error}');
                 }
                 if (reservations.isEmpty) {
-                  return const Text('No reservations yet.');
+                  return Text(s.noReservationsYet);
                 }
 
+                final filtered = reservations.where((reservation) {
+                  switch (_filter) {
+                    case _ReservationFilter.all:
+                      return true;
+                    case _ReservationFilter.pending:
+                      return reservation.status == ReservationStatus.reserved;
+                    case _ReservationFilter.confirmed:
+                      return reservation.status == ReservationStatus.completed;
+                  }
+                }).toList();
+
                 return Column(
-                  children: reservations.map((reservation) {
-                    final codeController = pickupCodeControllers.putIfAbsent(
-                      reservation.id,
-                      TextEditingController.new,
-                    );
-                    return Card(
-                      margin: const EdgeInsets.symmetric(vertical: 6),
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Reservation ${reservation.id.substring(0, 6)}',
-                            ),
-                            Text('Status: ${reservation.status.name}'),
-                            Text('Qty: ${reservation.qty}'),
-                            const SizedBox(height: 8),
-                            TextField(
-                              controller: codeController,
-                              decoration: const InputDecoration(
-                                labelText: 'Enter 4-digit pickup code',
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            FilledButton(
-                              onPressed:
-                                  reservation.status ==
-                                      ReservationStatus.reserved
-                                  ? () => onConfirmPickup(reservation)
-                                  : null,
-                              child: const Text('Confirm pickup'),
-                            ),
-                          ],
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            AppScope.of(context).localeController.isZhTw
+                                ? '快速篩選'
+                                : 'Quick filter',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
                         ),
-                      ),
-                    );
-                  }).toList(),
+                        Text(
+                          AppScope.of(context).localeController.isZhTw
+                              ? '總數 ${reservations.length}'
+                              : 'Total ${reservations.length}',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        ChoiceChip(
+                          selected: _filter == _ReservationFilter.all,
+                          label: Text(
+                            AppScope.of(context).localeController.isZhTw
+                                ? '全部 (${reservations.length})'
+                                : 'All (${reservations.length})',
+                          ),
+                          onSelected: (_) =>
+                              setState(() => _filter = _ReservationFilter.all),
+                        ),
+                        ChoiceChip(
+                          selected: _filter == _ReservationFilter.pending,
+                          label: Text(
+                            '${s.pendingConfirm} (${reservations.where((r) => r.status == ReservationStatus.reserved).length})',
+                          ),
+                          onSelected: (_) => setState(
+                            () => _filter = _ReservationFilter.pending,
+                          ),
+                        ),
+                        ChoiceChip(
+                          selected: _filter == _ReservationFilter.confirmed,
+                          label: Text(
+                            '${s.confirmedFilter} (${reservations.where((r) => r.status == ReservationStatus.completed).length})',
+                          ),
+                          onSelected: (_) => setState(
+                            () => _filter = _ReservationFilter.confirmed,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    ...filtered.map((reservation) {
+                      final codeController = widget.pickupCodeControllers
+                          .putIfAbsent(
+                            reservation.id,
+                            TextEditingController.new,
+                          );
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 6),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Reservation ${_shortReservationId(reservation.id)}',
+                              ),
+                              Text(
+                                'Status: ${s.statusLabel(_toLabel(reservation.status))}',
+                              ),
+                              Text('Qty: ${reservation.qty}'),
+                              const SizedBox(height: 8),
+                              TextField(
+                                controller: codeController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Enter 4-digit pickup code',
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              FilledButton(
+                                onPressed:
+                                    reservation.status ==
+                                        ReservationStatus.reserved
+                                    ? () => widget.onConfirmPickup(reservation)
+                                    : null,
+                                child: const Text('Confirm pickup'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+                  ],
                 );
               },
             ),
@@ -724,5 +1679,18 @@ class _ReservationAdminSection extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  AppStatusLabel _toLabel(ReservationStatus status) {
+    switch (status) {
+      case ReservationStatus.reserved:
+        return AppStatusLabel.reserved;
+      case ReservationStatus.completed:
+        return AppStatusLabel.completed;
+      case ReservationStatus.expired:
+        return AppStatusLabel.expired;
+      case ReservationStatus.cancelled:
+        return AppStatusLabel.cancelled;
+    }
   }
 }

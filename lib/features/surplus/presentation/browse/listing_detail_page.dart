@@ -2,7 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../app/app_scope.dart';
+import '../../../../core/i18n/app_strings.dart';
+import '../../../../core/i18n/language_menu_button.dart';
+import '../../../../core/widgets/load_error_view.dart';
 import '../../../../core/utils/date_time_formatters.dart';
+import 'reservation_confirmation_page.dart';
 import '../../../surplus/domain/listing.dart';
 import '../../../surplus/domain/surplus_exceptions.dart';
 import '../../../surplus/domain/venue.dart';
@@ -19,11 +23,6 @@ class ListingDetailPage extends StatefulWidget {
 class _ListingDetailPageState extends State<ListingDetailPage> {
   Future<String>? _uidFuture;
   bool _busy = false;
-
-  @override
-  void initState() {
-    super.initState();
-  }
 
   @override
   void didChangeDependencies() {
@@ -56,7 +55,22 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
       if (!mounted) {
         return;
       }
-      context.go('/listing/${listing.id}/reservation/${reservation.id}');
+      final target = '/listing/${listing.id}/reservation/${reservation.id}';
+      try {
+        context.go(target);
+      } catch (_) {
+        if (!mounted) {
+          return;
+        }
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => ReservationConfirmationPage(
+              listingId: listing.id,
+              reservationId: reservation.id,
+            ),
+          ),
+        );
+      }
     } on SurplusException catch (error) {
       if (!mounted) {
         return;
@@ -74,6 +88,7 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
   }
 
   Future<bool> _showReserveDisclaimer() async {
+    final s = AppStrings.of(context);
     var accepted = false;
     final result = await showDialog<bool>(
       context: context,
@@ -81,21 +96,17 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
         return StatefulBuilder(
           builder: (context, setLocalState) {
             return AlertDialog(
-              title: const Text('Before reserving'),
+              title: Text(s.beforeReserving),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'This app only matches donors and recipients. Boxmatch does not guarantee food safety.',
-                  ),
+                  Text(s.reserveDisclaimer),
                   const SizedBox(height: 12),
                   CheckboxListTile(
                     value: accepted,
                     contentPadding: EdgeInsets.zero,
-                    title: const Text(
-                      'I understand and accept this disclaimer.',
-                    ),
+                    title: Text(s.reserveDisclaimerAccept),
                     onChanged: (value) {
                       setLocalState(() {
                         accepted = value ?? false;
@@ -107,13 +118,13 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(false),
-                  child: const Text('Cancel'),
+                  child: Text(s.cancel),
                 ),
                 FilledButton(
                   onPressed: accepted
                       ? () => Navigator.of(context).pop(true)
                       : null,
-                  child: const Text('Reserve'),
+                  child: Text(s.reserve),
                 ),
               ],
             );
@@ -128,23 +139,45 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
   Widget build(BuildContext context) {
     final dependencies = AppScope.of(context);
     final repository = dependencies.repository;
+    final s = AppStrings.of(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Listing details')),
+      appBar: AppBar(
+        title: Text(s.listingDetailTitle),
+        actions: const [LanguageMenuButton()],
+      ),
       body: StreamBuilder<Listing?>(
         stream: repository.watchListing(widget.listingId),
         builder: (context, listingSnapshot) {
+          if (listingSnapshot.hasError) {
+            return LoadErrorView(
+              title: s.genericLoadErrorTitle,
+              message: s.genericLoadErrorBody,
+              retryLabel: s.retry,
+              onRetry: () => setState(() {}),
+            );
+          }
+
           final listing = listingSnapshot.data;
           if (listing == null) {
             if (listingSnapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());
             }
-            return const Center(child: Text('Listing not found.'));
+            return Center(child: Text(s.listingNotFound));
           }
 
           return StreamBuilder<List<Venue>>(
             stream: repository.watchVenues(),
             builder: (context, venuesSnapshot) {
+              if (venuesSnapshot.hasError) {
+                return LoadErrorView(
+                  title: s.genericLoadErrorTitle,
+                  message: s.genericLoadErrorBody,
+                  retryLabel: s.retry,
+                  onRetry: () => setState(() {}),
+                );
+              }
+
               final venueMap = {
                 for (final venue in venuesSnapshot.data ?? const <Venue>[])
                   venue.id: venue,
@@ -178,20 +211,56 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
                           ),
                           Text('Expires: ${formatDateTime(listing.expiresAt)}'),
                           Text(
-                            'Donor: ${listing.displayNameOptional?.trim().isNotEmpty == true ? listing.displayNameOptional : 'Private donor'}',
+                            'Donor: ${listing.displayNameOptional?.trim().isNotEmpty == true ? listing.displayNameOptional : s.privateDonor}',
                           ),
+                          if (listing.enterpriseBadges.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: listing.enterpriseBadges
+                                  .map(s.enterpriseBadgeLabel)
+                                  .whereType<String>()
+                                  .map(
+                                    (label) => Chip(
+                                      avatar: const Icon(
+                                        Icons.verified,
+                                        size: 16,
+                                        color: Color(0xFF2D6A4F),
+                                      ),
+                                      label: Text(label),
+                                    ),
+                                  )
+                                  .toList(),
+                            ),
+                          ],
                           const SizedBox(height: 8),
-                          Chip(label: Text('Status: ${status.name}')),
+                          Chip(
+                            label: Text(
+                              'Status: ${s.statusLabel(_statusToLabel(status))}',
+                            ),
+                          ),
                         ],
                       ),
                     ),
                   ),
                   const SizedBox(height: 12),
-                  const Card(
+                  Card(
                     child: Padding(
-                      padding: EdgeInsets.all(16),
-                      child: Text(
-                        'Food safety disclaimer: Boxmatch is a matching platform only. Please inspect items at pickup and decide if they are suitable.',
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(s.reserveDisclaimer),
+                          const SizedBox(height: 8),
+                          Text(
+                            s.publicPickupOnlyNotice,
+                            style: const TextStyle(
+                              color: Color(0xFF7A4A00),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -207,7 +276,7 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.check_circle_outline),
-                    label: const Text('Reserve 1 item'),
+                    label: Text(s.reserveOneItem),
                   ),
                 ],
               );
@@ -216,5 +285,18 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
         },
       ),
     );
+  }
+
+  AppStatusLabel _statusToLabel(ListingStatus status) {
+    switch (status) {
+      case ListingStatus.active:
+        return AppStatusLabel.active;
+      case ListingStatus.reserved:
+        return AppStatusLabel.reserved;
+      case ListingStatus.expired:
+        return AppStatusLabel.expired;
+      case ListingStatus.completed:
+        return AppStatusLabel.completed;
+    }
   }
 }

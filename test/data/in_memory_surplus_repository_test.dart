@@ -2,6 +2,7 @@ import 'package:boxmatch/features/surplus/data/in_memory_surplus_repository.dart
 import 'package:boxmatch/features/surplus/domain/listing.dart';
 import 'package:boxmatch/features/surplus/domain/listing_input.dart';
 import 'package:boxmatch/features/surplus/domain/listing_visibility.dart';
+import 'package:boxmatch/features/surplus/domain/reservation.dart';
 import 'package:boxmatch/features/surplus/domain/surplus_exceptions.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -105,5 +106,108 @@ void main() {
 
     final listing = await repository.watchListing(create.listingId).first;
     expect(listing?.status, ListingStatus.expired);
+  });
+
+  test('rotate and revoke token updates edit permission', () async {
+    final now = DateTime(2026, 4, 1, 9);
+    final repository = InMemorySurplusRepository(now: () => now);
+
+    final create = await repository.createListing(
+      buildInput(
+        now,
+        now.add(const Duration(hours: 1)),
+        now.add(const Duration(hours: 2)),
+      ),
+    );
+
+    final canEditBefore = await repository.canEditListing(
+      listingId: create.listingId,
+      token: create.editToken,
+    );
+    expect(canEditBefore, isTrue);
+
+    final rotated = await repository.rotateEditToken(
+      listingId: create.listingId,
+      token: create.editToken,
+    );
+    expect(rotated, isNot(create.editToken));
+
+    final oldTokenAllowed = await repository.canEditListing(
+      listingId: create.listingId,
+      token: create.editToken,
+    );
+    expect(oldTokenAllowed, isFalse);
+
+    await repository.revokeEditToken(
+      listingId: create.listingId,
+      token: rotated,
+    );
+    final canEditAfterRevoke = await repository.canEditListing(
+      listingId: create.listingId,
+      token: rotated,
+    );
+    expect(canEditAfterRevoke, isFalse);
+  });
+
+  test('confirm pickup validates code and marks completed', () async {
+    final now = DateTime(2026, 4, 1, 9);
+    final repository = InMemorySurplusRepository(now: () => now);
+
+    final create = await repository.createListing(
+      buildInput(
+        now,
+        now.add(const Duration(hours: 1)),
+        now.add(const Duration(hours: 2)),
+      ),
+    );
+
+    final reservation = await repository.reserveListing(
+      listingId: create.listingId,
+      claimerUid: 'u1',
+      qty: 1,
+      disclaimerAccepted: true,
+    );
+
+    expect(
+      () => repository.confirmPickup(
+        listingId: create.listingId,
+        reservationId: reservation.id,
+        token: create.editToken,
+        pickupCode: '0000',
+      ),
+      throwsA(isA<ValidationException>()),
+    );
+
+    await repository.confirmPickup(
+      listingId: create.listingId,
+      reservationId: reservation.id,
+      token: create.editToken,
+      pickupCode: reservation.pickupCode,
+    );
+
+    final confirmed = await repository.watchReservation(reservation.id).first;
+    expect(confirmed?.status, ReservationStatus.completed);
+  });
+
+  test('watchReservationsForListing denies invalid token', () async {
+    final now = DateTime(2026, 4, 1, 9);
+    final repository = InMemorySurplusRepository(now: () => now);
+    final create = await repository.createListing(
+      buildInput(
+        now,
+        now.add(const Duration(hours: 1)),
+        now.add(const Duration(hours: 2)),
+      ),
+    );
+
+    expect(
+      () => repository
+          .watchReservationsForListing(
+            listingId: create.listingId,
+            token: 'invalid',
+          )
+          .first,
+      throwsA(isA<PermissionDeniedException>()),
+    );
   });
 }

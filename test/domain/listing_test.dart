@@ -56,4 +56,54 @@ void main() {
     );
     expect(listing.resolvedStatus(now), ListingStatus.completed);
   });
+
+  test('canReserve only true when active and has remaining', () {
+    final listing = buildListing(
+      remaining: 2,
+      expiresAt: now.add(const Duration(minutes: 30)),
+    );
+    expect(listing.canReserve(now), isTrue);
+
+    final noStock = listing.copyWith(quantityRemaining: 0);
+    expect(noStock.canReserve(now), isFalse);
+
+    final expired = listing.copyWith(
+      expiresAt: now.subtract(const Duration(minutes: 1)),
+    );
+    expect(expired.canReserve(now), isFalse);
+  });
+
+  test('fromMap + toMap + copyWith roundtrip', () {
+    final map = {
+      'venueId': 'v2',
+      'pickupPointText': 'Gate B',
+      'itemType': 'Drink',
+      'description': 'Bottle water',
+      'quantityTotal': 5,
+      'quantityRemaining': 4,
+      'price': 0,
+      'currency': 'TWD',
+      'pickupStartAt': now.toIso8601String(),
+      'pickupEndAt': now.add(const Duration(hours: 1)).millisecondsSinceEpoch,
+      'expiresAt': now.add(const Duration(hours: 2)),
+      'displayNameOptional': 'Booth D',
+      'visibility': 'minimal',
+      'status': 'active',
+      'editTokenHash': 'hash-2',
+      'createdAt': now.toIso8601String(),
+      'updatedAt': now.toIso8601String(),
+    };
+
+    final listing = Listing.fromMap(map, id: 'l2');
+    expect(listing.id, 'l2');
+    expect(listing.venueId, 'v2');
+    expect(listing.hasRemaining, isTrue);
+
+    final updated = listing.copyWith(description: 'Updated');
+    expect(updated.description, 'Updated');
+
+    final out = updated.toMap();
+    expect(out['itemType'], 'Drink');
+    expect(out['editTokenHash'], 'hash-2');
+  });
 }

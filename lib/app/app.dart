@@ -13,13 +13,18 @@ class BoxmatchApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AppScope(
-      dependencies: dependencies,
-      child: MaterialApp.router(
-        title: 'Boxmatch',
-        theme: buildAppTheme(),
-        routerConfig: _router,
-      ),
+    return AnimatedBuilder(
+      animation: dependencies.localeController,
+      builder: (context, _) {
+        return AppScope(
+          dependencies: dependencies,
+          child: MaterialApp.router(
+            title: 'Boxmatch',
+            theme: buildAppTheme(),
+            routerConfig: _router,
+          ),
+        );
+      },
     );
   }
 }

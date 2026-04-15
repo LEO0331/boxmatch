@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: boxmatch-api
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false
+      - key: UNVERIFIED_DAILY_LIMIT
+        value: "10"
+      - key: RECIPIENT_DAILY_RESERVATION_LIMIT
+        value: "5"
+      - key: LEGACY_RECIPIENT_DAILY_RESERVATION_LIMIT
+        value: "2"
+      - key: REQUIRE_ID_TOKEN
+        value: "false"
