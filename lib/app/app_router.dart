@@ -1,18 +1,29 @@
 import 'package:go_router/go_router.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 import '../core/layout/app_shell.dart';
 import '../features/surplus/presentation/browse/listings_page.dart';
 import '../features/surplus/presentation/browse/listing_detail_page.dart'
-    deferred as listing_detail_page;
+    as listing_detail_page_direct;
+import '../features/surplus/presentation/browse/listing_detail_page.dart'
+    deferred as listing_detail_page_deferred;
 import '../features/surplus/presentation/browse/my_reservations_page.dart'
-    deferred as my_reservations_page;
+    as my_reservations_page_direct;
+import '../features/surplus/presentation/browse/my_reservations_page.dart'
+    deferred as my_reservations_page_deferred;
 import '../features/surplus/presentation/browse/reservation_confirmation_page.dart'
-    deferred as reservation_confirmation_page;
+    as reservation_confirmation_page_direct;
+import '../features/surplus/presentation/browse/reservation_confirmation_page.dart'
+    deferred as reservation_confirmation_page_deferred;
 import '../features/surplus/presentation/enterprise/enterprise_listing_page.dart'
-    deferred as enterprise_listing_page;
+    as enterprise_listing_page_direct;
+import '../features/surplus/presentation/enterprise/enterprise_listing_page.dart'
+    deferred as enterprise_listing_page_deferred;
 import '../features/surplus/presentation/map/venues_map_page.dart'
-    deferred as venues_map_page;
+    as venues_map_page_direct;
+import '../features/surplus/presentation/map/venues_map_page.dart'
+    deferred as venues_map_page_deferred;
 
 @visibleForTesting
 String? parseEnterpriseEditTokenFromFragment(String fragment) {
@@ -93,17 +104,22 @@ GoRouter buildRouter() {
           GoRoute(path: '/', builder: (context, state) => const ListingsPage()),
           GoRoute(
             path: '/map',
-            builder: (context, state) => _DeferredRoutePage(
-              loadLibrary: venues_map_page.loadLibrary,
-              builder: (_) => venues_map_page.VenuesMapPage(),
-            ),
+            builder: (context, state) => kIsWeb
+                ? _DeferredRoutePage(
+                    loadLibrary: venues_map_page_deferred.loadLibrary,
+                    builder: (_) => venues_map_page_deferred.VenuesMapPage(),
+                  )
+                : const venues_map_page_direct.VenuesMapPage(),
           ),
           GoRoute(
             path: '/enterprise/new',
-            builder: (context, state) => _DeferredRoutePage(
-              loadLibrary: enterprise_listing_page.loadLibrary,
-              builder: (_) => enterprise_listing_page.EnterpriseListingPage(),
-            ),
+            builder: (context, state) => kIsWeb
+                ? _DeferredRoutePage(
+                    loadLibrary: enterprise_listing_page_deferred.loadLibrary,
+                    builder: (_) =>
+                        enterprise_listing_page_deferred.EnterpriseListingPage(),
+                  )
+                : const enterprise_listing_page_direct.EnterpriseListingPage(),
           ),
         ],
       ),
@@ -111,45 +127,66 @@ GoRouter buildRouter() {
         path: '/listing/:listingId',
         builder: (context, state) {
           final listingId = state.pathParameters['listingId']!;
-          return _DeferredRoutePage(
-            loadLibrary: listing_detail_page.loadLibrary,
-            builder: (_) =>
-                listing_detail_page.ListingDetailPage(listingId: listingId),
-          );
+          return kIsWeb
+              ? _DeferredRoutePage(
+                  loadLibrary: listing_detail_page_deferred.loadLibrary,
+                  builder: (_) =>
+                      listing_detail_page_deferred.ListingDetailPage(
+                        listingId: listingId,
+                      ),
+                )
+              : listing_detail_page_direct.ListingDetailPage(
+                  listingId: listingId,
+                );
         },
       ),
       GoRoute(
         path: '/listing/:listingId/reservation/:reservationId',
         builder: (context, state) {
-          return _DeferredRoutePage(
-            loadLibrary: reservation_confirmation_page.loadLibrary,
-            builder: (_) =>
-                reservation_confirmation_page.ReservationConfirmationPage(
+          return kIsWeb
+              ? _DeferredRoutePage(
+                  loadLibrary:
+                      reservation_confirmation_page_deferred.loadLibrary,
+                  builder: (_) =>
+                      reservation_confirmation_page_deferred.ReservationConfirmationPage(
+                        listingId: state.pathParameters['listingId']!,
+                        reservationId: state.pathParameters['reservationId']!,
+                      ),
+                )
+              : reservation_confirmation_page_direct.ReservationConfirmationPage(
                   listingId: state.pathParameters['listingId']!,
                   reservationId: state.pathParameters['reservationId']!,
-                ),
-          );
+                );
         },
       ),
       GoRoute(
         path: '/my-reservations',
-        builder: (context, state) => _DeferredRoutePage(
-          loadLibrary: my_reservations_page.loadLibrary,
-          builder: (_) => my_reservations_page.MyReservationsPage(),
-        ),
+        builder: (context, state) => kIsWeb
+            ? _DeferredRoutePage(
+                loadLibrary: my_reservations_page_deferred.loadLibrary,
+                builder: (_) =>
+                    my_reservations_page_deferred.MyReservationsPage(),
+              )
+            : const my_reservations_page_direct.MyReservationsPage(),
       ),
       GoRoute(
         path: '/enterprise/edit/:listingId',
         builder: (context, state) {
           final listingId = state.pathParameters['listingId'];
           final token = _extractEnterpriseEditToken(state);
-          return _DeferredRoutePage(
-            loadLibrary: enterprise_listing_page.loadLibrary,
-            builder: (_) => enterprise_listing_page.EnterpriseListingPage(
-              listingId: listingId,
-              token: token,
-            ),
-          );
+          return kIsWeb
+              ? _DeferredRoutePage(
+                  loadLibrary: enterprise_listing_page_deferred.loadLibrary,
+                  builder: (_) =>
+                      enterprise_listing_page_deferred.EnterpriseListingPage(
+                        listingId: listingId,
+                        token: token,
+                      ),
+                )
+              : enterprise_listing_page_direct.EnterpriseListingPage(
+                  listingId: listingId,
+                  token: token,
+                );
         },
       ),
     ],
