@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">Boxmatch social preview</title>
+  <desc id="desc">Boxmatch helps exhibitions reduce food waste by matching surplus meals and drinks.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#f3f9ee"/>
+      <stop offset="100%" stop-color="#e4f1e8"/>
+    </linearGradient>
+    <linearGradient id="seed" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0%" stop-color="#2d6a4f"/>
+      <stop offset="100%" stop-color="#40916c"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <circle cx="1060" cy="88" r="180" fill="#dcebdc" opacity="0.7"/>
+  <circle cx="130" cy="560" r="200" fill="#deefde" opacity="0.8"/>
+
+  <g transform="translate(80 76)">
+    <rect width="1040" height="478" rx="28" fill="#ffffff" stroke="#d0e3d2" stroke-width="2"/>
+    <rect x="48" y="48" width="96" height="96" rx="24" fill="url(#seed)"/>
+    <path d="M78 95c20-4 24-18 18-30 20 7 26 25 16 42-9 15-27 22-44 16-17-6-27-23-22-41 4-16 16-27 34-31-11 9-12 23-2 34z" fill="#f3f9ee"/>
+
+    <text x="166" y="93" font-size="58" font-family="Inter,Segoe UI,Arial,sans-serif" font-weight="700" fill="#1f3c2f">Boxmatch</text>
+    <text x="166" y="132" font-size="24" font-family="Inter,Segoe UI,Arial,sans-serif" fill="#3f6652">Exhibition Surplus Food Matching</text>
+
+    <text x="48" y="226" font-size="48" font-family="Inter,Segoe UI,Arial,sans-serif" font-weight="700" fill="#1e3529">
+      Reduce Waste in Exhibitions
+    </text>
+    <text x="48" y="274" font-size="30" font-family="Inter,Segoe UI,Arial,sans-serif" fill="#294a39">
+      Post surplus lunchboxes &amp; drinks.
+    </text>
+    <text x="48" y="314" font-size="30" font-family="Inter,Segoe UI,Arial,sans-serif" fill="#294a39">
+      Match nearby pickup in public venues.
+    </text>
+
+    <rect x="48" y="368" width="430" height="64" rx="32" fill="url(#seed)"/>
+    <text x="84" y="410" font-size="28" font-family="Inter,Segoe UI,Arial,sans-serif" font-weight="600" fill="#ffffff">
+      leo0331.github.io/boxmatch
+    </text>
+
+    <text x="48" y="456" font-size="20" font-family="Inter,Segoe UI,Arial,sans-serif" fill="#557665">
+      Lightweight web app • Spark-friendly backend • Public handoff workflow
+    </text>
+  </g>
+</svg>

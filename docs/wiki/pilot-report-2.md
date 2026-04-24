@@ -24,8 +24,8 @@ Run second pilot and compare against pilot #1 baseline.
 ## Data Source
 
 1. Run:
-   - `cd /Users/Leo/Documents/boxmatch/server && npm run export:kpi:30d`
-2. Attach generated CSV from `/Users/Leo/Documents/boxmatch/reports`.
+   - `cd ../boxmatch/server && npm run export:kpi:30d`
+2. Attach generated CSV from `../Documents/boxmatch/reports`.
 
 ## Decisions for Day 29
 

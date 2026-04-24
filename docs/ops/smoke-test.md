@@ -27,7 +27,7 @@ export BOXMATCH_API_BASE_URL="https://<your-render-service>.onrender.com"
 ## Run
 
 ```bash
-/Users/Leo/Documents/boxmatch/scripts/smoke_test.sh
+../boxmatch/scripts/smoke_test.sh
 ```
 
 ## Success Criteria

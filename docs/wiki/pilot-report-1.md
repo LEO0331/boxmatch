@@ -19,8 +19,8 @@ Run first pilot and verify baseline operational flow.
 ## Data Source
 
 1. Run:
-   - `cd /Users/Leo/Documents/boxmatch/server && npm run export:kpi:7d`
-2. Attach generated CSV from `/Users/Leo/Documents/boxmatch/reports`.
+   - `cd ../boxmatch/server && npm run export:kpi:7d`
+2. Attach generated CSV from `../Documents/boxmatch/reports`.
 
 ## What Worked
 
