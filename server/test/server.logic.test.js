@@ -65,4 +65,23 @@ describe('server pure logic', () => {
       __test.parseBearerToken({ headers: { authorization: 'Bearer abc123' } })
     ).toBe('abc123');
   });
+
+  test('randomDigits generates numeric pickup code with requested length', () => {
+    expect(__test.randomDigits()).toMatch(/^\d{4}$/);
+    expect(__test.randomDigits(6)).toMatch(/^\d{6}$/);
+  });
+
+  test('validateListingTimeline accepts Firestore-like timestamps', () => {
+    const errors = [];
+    __test.validateListingTimeline(
+      {
+        pickupStartAt: { toDate: () => new Date('2026-01-01T10:00:00Z') },
+        pickupEndAt: { toDate: () => new Date('2026-01-01T09:00:00Z') },
+        expiresAt: { toDate: () => new Date('2026-01-01T12:00:00Z') }
+      },
+      errors
+    );
+
+    expect(errors).toContain('pickupEndAt must be later than pickupStartAt.');
+  });
 });

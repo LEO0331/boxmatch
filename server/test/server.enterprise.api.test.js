@@ -116,6 +116,34 @@ describe('enterprise api', () => {
     expect(afterRevoke.body.code).toBe('VALIDATE_TOKEN_FAILED');
   });
 
+  test('update rejects partial pickup timeline regression', async () => {
+    const now = Date.now();
+    const created = await request(app)
+      .post('/enterprise/listings/create')
+      .send(
+        makeCreatePayload({
+          pickupStartAt: new Date(now + 60 * 60 * 1000).toISOString(),
+          pickupEndAt: new Date(now + 120 * 60 * 1000).toISOString(),
+          expiresAt: new Date(now + 180 * 60 * 1000).toISOString()
+        })
+      );
+
+    const res = await request(app)
+      .post(`/enterprise/listings/${created.body.listingId}/update`)
+      .send({
+        token: created.body.token,
+        data: {
+          pickupEndAt: new Date(now + 30 * 60 * 1000).toISOString()
+        }
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('VALIDATION_UPDATE_LISTING_FAILED');
+    expect(res.body.details).toContain(
+      'pickupEndAt must be later than pickupStartAt.'
+    );
+  });
+
   test('confirm pickup transitions reservation to completed', async () => {
     const created = await request(app)
       .post('/enterprise/listings/create')

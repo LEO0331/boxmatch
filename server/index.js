@@ -581,6 +581,27 @@ function parseDateField(input, fieldName, errors) {
   return d;
 }
 
+function toDateLike(value) {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value.toDate === 'function') return value.toDate();
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function validateListingTimeline(source, errors) {
+  const pickupStartAt = toDateLike(source.pickupStartAt);
+  const pickupEndAt = toDateLike(source.pickupEndAt);
+  const expiresAt = toDateLike(source.expiresAt);
+
+  if (pickupStartAt && pickupEndAt && pickupEndAt <= pickupStartAt) {
+    errors.push('pickupEndAt must be later than pickupStartAt.');
+  }
+  if (pickupStartAt && expiresAt && expiresAt <= pickupStartAt) {
+    errors.push('expiresAt must be later than pickupStartAt.');
+  }
+}
+
 function validateAndBuildUpdate(body) {
   const allowed = [
     'venueId',
@@ -650,12 +671,7 @@ function validateAndBuildUpdate(body) {
   if (pickupEndAt) payload.pickupEndAt = pickupEndAt;
   if (expiresAt) payload.expiresAt = expiresAt;
 
-  if (pickupStartAt && pickupEndAt && pickupEndAt <= pickupStartAt) {
-    errors.push('pickupEndAt must be later than pickupStartAt.');
-  }
-  if (pickupStartAt && expiresAt && expiresAt <= pickupStartAt) {
-    errors.push('expiresAt must be later than pickupStartAt.');
-  }
+  validateListingTimeline({ pickupStartAt, pickupEndAt, expiresAt }, errors);
 
   return { errors, payload };
 }
@@ -707,7 +723,7 @@ function validateAndBuildCreate(body) {
 function randomDigits(length = 4) {
   let output = '';
   for (let i = 0; i < length; i++) {
-    output += Math.floor(Math.random() * 10);
+    output += crypto.randomInt(0, 10);
   }
   return output;
 }
@@ -1378,6 +1394,24 @@ app.post('/enterprise/listings/:listingId/update', async (req, res) => {
       ...existing,
       ...payload
     };
+    const timelineTouched = [
+      'pickupStartAt',
+      'pickupEndAt',
+      'expiresAt'
+    ].some((key) => Object.hasOwn(payload, key));
+    if (timelineTouched) {
+      const timelineErrors = [];
+      validateListingTimeline(merged, timelineErrors);
+      if (timelineErrors.length > 0) {
+        return errorResponse(
+          res,
+          400,
+          'Validation failed.',
+          'VALIDATION_UPDATE_LISTING_FAILED',
+          timelineErrors
+        );
+      }
+    }
     const enterpriseKey =
       String(existing.enterpriseKey || '').trim() ||
       deriveEnterpriseKey(req, merged);
@@ -1614,6 +1648,7 @@ module.exports = {
     normalizeText,
     parseBearerToken,
     parseDateField,
+    randomDigits,
     resolveListingStatus,
     resolveRecipientDailyLimit,
     safeEqual,
@@ -1624,6 +1659,7 @@ module.exports = {
     toMillis,
     utcDayKey,
     validateAndBuildCreate,
+    validateListingTimeline,
     validateAndBuildUpdate
   }
 };
