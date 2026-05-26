@@ -89,6 +89,16 @@ flutter analyze
 flutter test
 ```
 
+Web e2e smoke test:
+
+```bash
+flutter build web
+npm ci
+npm run test:e2e:web
+```
+
+This runs Playwright against `build/web` and checks core Flutter web routes for global runtime errors.
+
 ### Coverage Gate Rule
 
 - CI workflow: `.github/workflows/flutter-ci.yml`

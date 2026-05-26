@@ -69,3 +69,5 @@ serviceAccount.json
 .omx/
 test-results/
 playwright-report/
+integration_test/test_bundle.dart
+.omx

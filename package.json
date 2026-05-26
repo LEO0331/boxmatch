@@ -1,0 +1,10 @@
+{
+  "name": "boxmatch-e2e",
+  "private": true,
+  "scripts": {
+    "test:e2e:web": "playwright test tools/e2e/web_smoke.spec.js --reporter=line"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0"
+  }
+}
