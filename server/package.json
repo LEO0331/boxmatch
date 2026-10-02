@@ -17,11 +17,16 @@
   },
   "dependencies": {
     "cors": "^2.8.5",
-    "express": "^4.21.2",
+    "express": "^4.22.3",
     "firebase-admin": "^14.5.0"
   },
   "devDependencies": {
     "jest": "^29.7.0",
     "supertest": "^7.1.1"
+  },
+  "overrides": {
+    "gaxios": {
+      "uuid": "^11.1.1"
+    }
   }
 }
