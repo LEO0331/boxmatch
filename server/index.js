@@ -23,7 +23,16 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 const app = express();
-const corsMiddleware = cors({ origin: true });
+const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || (process.env.NODE_ENV === 'production' ? 'https://leo0331.github.io' : ''))
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const corsMiddleware = cors({
+  // CORS limits browser access; bearer tokens and edit tokens remain the auth boundary.
+  origin(origin, callback) {
+    callback(null, isAllowedCorsOrigin(origin));
+  }
+});
 
 app.use(express.json({ limit: '1mb' }));
 app.use((req, res, next) => corsMiddleware(req, res, next));
@@ -49,7 +58,7 @@ const LEGACY_RECIPIENT_DAILY_RESERVATION_LIMIT = Math.max(
   1,
   Number(process.env.LEGACY_RECIPIENT_DAILY_RESERVATION_LIMIT || 2)
 );
-const REQUIRE_ID_TOKEN = String(process.env.REQUIRE_ID_TOKEN || 'false').toLowerCase() === 'true';
+const REQUIRE_ID_TOKEN = recipientIdTokenRequired();
 const DEFAULT_BADGE_RULES = {
   enabled: true,
   rules: {
@@ -203,14 +212,31 @@ function logEvent(level, event, fields = {}) {
   }
 }
 
+function requestRouteLabel(req) {
+  // A route template cannot disclose query-string credentials or attacker-controlled paths.
+  return typeof req.route?.path === 'string'
+    ? `${req.baseUrl || ''}${req.route.path}`
+    : '[pre-route-or-unmatched]';
+}
+
+function recipientIdTokenRequired(env = process.env) {
+  const setting = env.REQUIRE_ID_TOKEN;
+  if (setting == null || setting === '') return env.NODE_ENV === 'production';
+  // Only an explicit "false" opts in to the legacy, unauthenticated mode.
+  return String(setting).trim().toLowerCase() !== 'false';
+}
+
+function isAllowedCorsOrigin(origin, allowedOrigins = CORS_ALLOWED_ORIGINS) {
+  return !origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin);
+}
+
 function logServerError(event, req, error, extra = {}) {
   logEvent('error', event, {
     requestId: req.requestId ?? null,
     method: req.method ?? null,
-    path: req.originalUrl ?? null,
+    path: requestRouteLabel(req),
     errorName: error?.name || 'Error',
-    errorMessage: error?.message || String(error),
-    stack: error?.stack || null,
+    // Raw error messages and stacks can contain credentials, tokens or user data.
     ...extra
   });
 }
@@ -241,7 +267,7 @@ app.use((req, res, next) => {
     logEvent(level, 'http.request.completed', {
       requestId: req.requestId,
       method: req.method,
-      path: req.originalUrl,
+      path: requestRouteLabel(req),
       status: res.statusCode,
       latencyMs,
       reasonCode,
@@ -350,11 +376,8 @@ function endOfDay(date = nowDate()) {
 }
 
 function resolveClientIp(req) {
-  const forwarded = String(req.headers['x-forwarded-for'] || '').trim();
-  if (forwarded) {
-    const first = forwarded.split(',')[0]?.trim();
-    if (first) return first;
-  }
+  // Express applies its configured trusted-proxy policy to req.ip.
+  // Never take the left-most X-Forwarded-For value from untrusted input.
   return String(req.ip || req.socket?.remoteAddress || 'unknown').trim();
 }
 
@@ -757,7 +780,7 @@ function errorResponse(res, status, message, code, details) {
 }
 
 async function verifyTokenAndFetchListing(listingId, token) {
-  if (!listingId || !token) {
+  if (!listingId || typeof token !== 'string' || !token || token.length > 256) {
     return { error: 'listingId and token are required.', code: 400 };
   }
 
@@ -948,7 +971,6 @@ app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
       logEvent('info', 'recipient.reserve.idempotent_replay', {
         requestId: req.requestId,
         listingId,
-        claimerUid,
         recipientAuthMode
       });
     } else {
@@ -1000,7 +1022,7 @@ app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
       reasonCode,
       recipientAuthMode
     });
-    return errorResponse(res, status, message, reasonCode);
+    return errorResponse(res, status, status === 500 ? 'Internal server error.' : message, reasonCode);
   }
 });
 
@@ -1008,8 +1030,9 @@ app.post('/recipient/listings/:listingId/report-abuse', async (req, res) => {
   try {
     const listingId = req.params.listingId;
     const claimerUid = String(req.recipientUid || '').trim();
-    const reason = String(req.body?.reason || '').trim();
-    const reservationId = String(req.body?.reservationId || '').trim();
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+    const reservationId = typeof req.body?.reservationId === 'string'
+      ? req.body.reservationId.trim() : '';
 
     if (!reason) {
       return errorResponse(
@@ -1017,6 +1040,13 @@ app.post('/recipient/listings/:listingId/report-abuse', async (req, res) => {
         400,
         'reason is required.',
         'VALIDATION_ABUSE_REASON_REQUIRED'
+      );
+    }
+    if (typeof req.body?.reason !== 'string' || reason.length > 240 ||
+        (req.body?.reservationId != null &&
+          (typeof req.body.reservationId !== 'string' || reservationId.length > 128))) {
+      return errorResponse(
+        res, 400, 'Invalid abuse report fields.', 'VALIDATION_ABUSE_REPORT_INVALID'
       );
     }
 
@@ -1031,7 +1061,6 @@ app.post('/recipient/listings/:listingId/report-abuse', async (req, res) => {
     logEvent('warn', 'recipient.abuse.reported', {
       requestId: req.requestId,
       listingId,
-      claimerUid,
       reasonCode: 'RECIPIENT_ABUSE_REPORT_CREATED'
     });
 
@@ -1178,7 +1207,7 @@ app.post('/recipient/reservations/:reservationId/cancel', async (req, res) => {
     logServerError('recipient.reservation.cancel.failed', req, error, {
       reasonCode
     });
-    return errorResponse(res, status, message, reasonCode);
+    return errorResponse(res, status, status === 500 ? 'Internal server error.' : message, reasonCode);
   }
 });
 
@@ -1622,7 +1651,7 @@ app.post('/enterprise/listings/:listingId/confirm-pickup', async (req, res) => {
     return errorResponse(
       res,
       status,
-      message,
+      status === 500 ? 'Internal server error.' : message,
       status == 400 ? 'CONFIRM_PICKUP_FAILED_BUSINESS_RULE' : 'CONFIRM_PICKUP_FAILED_INTERNAL'
     );
   }
@@ -1648,6 +1677,10 @@ module.exports = {
     normalizeText,
     parseBearerToken,
     parseDateField,
+    recipientIdTokenRequired,
+    isAllowedCorsOrigin,
+    requestRouteLabel,
+    resolveClientIp,
     randomDigits,
     resolveListingStatus,
     resolveRecipientDailyLimit,
