@@ -22,4 +22,6 @@ services:
       - key: LEGACY_RECIPIENT_DAILY_RESERVATION_LIMIT
         value: "2"
       - key: REQUIRE_ID_TOKEN
-        value: "false"
+        value: "true"
+      - key: CORS_ALLOWED_ORIGINS
+        value: "https://leo0331.github.io"
