@@ -48,6 +48,11 @@ To enable Firebase mode in production:
 2. Add platform configs (`google-services.json`, `GoogleService-Info.plist`, etc.).
 3. Deploy Firestore rules/indexes.
 
+## Security review
+
+- [Security review and finding status (2026-11-19)](docs/SECURITY_REVIEW_2026-11-19.md) — verified recipient identity, logging, CORS, dependency checks, and remaining abuse-control risks.
+- Production recipient operations require Firebase ID tokens; the public web client uses Firebase anonymous authentication. Legacy UID-only requests are no longer accepted by the reviewed Render configuration.
+
 ## API Backend (Spark-friendly)
 
 This project now uses a standalone Node API in `server/` (Render deploy) instead of Firebase Functions, so you can stay on Firebase Spark plan.

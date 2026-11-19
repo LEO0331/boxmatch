@@ -56,10 +56,11 @@ Business rule:
 Auth compatibility policy (Phase 1):
 
 - recipient API accepts `Authorization: Bearer <Firebase ID token>` and legacy `claimerUid`.
-- server always prefers token uid when token is present.
+- server always prefers the verified token uid when token is present.
 - if both token uid and `claimerUid` exist but mismatch, API returns `400` with `AUTH_UID_MISMATCH`.
-- if token is absent, legacy mode is used (until deprecation date).
-- legacy mode uses stricter daily cap (`LEGACY_RECIPIENT_DAILY_RESERVATION_LIMIT`, default `2`).
+- **Production Render deployment requires a valid Firebase ID token**, including when the client uses anonymous Firebase sign-in. Missing tokens return `401 AUTH_ID_TOKEN_REQUIRED`.
+- Legacy `claimerUid`-only mode remains an explicit **development-only compatibility opt-in** (`REQUIRE_ID_TOKEN=false`) and is vulnerable to identity spoofing; do not enable it on a public API.
+- `REQUIRE_ID_TOKEN` defaults to `true` when `NODE_ENV=production`.
 
 ### Create listing
 
@@ -139,7 +140,9 @@ Exports are written to `../Documents/boxmatch/reports`.
 - `UNVERIFIED_DAILY_LIMIT` (optional; default `5`)
 - `RECIPIENT_DAILY_RESERVATION_LIMIT` (optional; default `5`)
 - `LEGACY_RECIPIENT_DAILY_RESERVATION_LIMIT` (optional; default `2`)
-- `REQUIRE_ID_TOKEN` (optional; default `false`; when `true`, recipient API rejects requests without bearer token)
+- `REQUIRE_ID_TOKEN` (**true in render.yaml**; secure-by-default when `NODE_ENV=production`)
+- `CORS_ALLOWED_ORIGINS` (comma-separated browser origins; Render default: `https://leo0331.github.io`; native clients without an Origin header are unaffected)
+- Note: Render does not currently set Express `trust proxy`. IP fallback uses Express's `req.ip` rather than untrusted `X-Forwarded-For`; check Render's actual proxy topology before changing this policy.
 
 ## GitHub Actions secret needed
 
@@ -147,12 +150,13 @@ Exports are written to `../Documents/boxmatch/reports`.
 
 ## Recipient Auth Migration Timeline
 
-- Phase 1 compatibility: `2026-04-02` to `2027-04-01`
-  - token and legacy body uid are both accepted.
-  - logs include `recipientAuthMode=token|legacy`.
-- Phase 2 enforcement starts: `2027-04-01`
-  - set `REQUIRE_ID_TOKEN=true`.
-  - remove legacy `claimerUid` handling in client payloads.
+- Historical Phase 1 compatibility: `2026-04-02` to `2026-11-19`.
+  - token and legacy body uid were both accepted; production exposure is documented in `docs/SECURITY_REVIEW_2026-11-19.md`.
+- Security cutover (after this PR is deployed):
+  - production Render requires Firebase ID tokens now; missing tokens return `401`.
+  - older clients using only `claimerUid` must upgrade; the current Flutter client already attempts anonymous Firebase sign-in and sends a bearer token.
+  - do not disable this requirement to restore older unauthenticated clients.
+- Follow-up: remove the legacy compatibility code after existing clients have migrated.
 
 ## Manual Review SOP (Verified Enterprise)
 

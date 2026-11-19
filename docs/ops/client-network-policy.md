@@ -39,17 +39,18 @@
 - `POST /enterprise/listings/:listingId/reservations`
 - `POST /recipient/listings/:listingId/reserve`
 
-## Recipient Auth Migration (Phase 1)
+## Recipient Auth Migration (Production Token Enforcement)
 
-- Phase 1 window: `2026-04-02` to `2027-04-01`.
+- The 2026-04-02 legacy phase accepted a client-supplied `claimerUid` without authenticating it. This is unsafe for publicly deployed recipient routes.
+- Current production policy after this review: Render sets `REQUIRE_ID_TOKEN=true`.
 - Client behavior:
-  - sends bearer token when Firebase auth is available.
-  - keeps legacy `claimerUid` body for compatibility.
+  - obtains a Firebase anonymous user and sends the ID token as a bearer token on recipient routes.
+  - keeps the `claimerUid` body only for backward-compatible payload structure; the server verifies it matches the token.
 - Server behavior:
-  - prefers bearer token uid.
-  - falls back to `claimerUid` only when token is missing.
-  - rejects uid mismatch (`AUTH_UID_MISMATCH`).
-  - can enforce token-only mode using `REQUIRE_ID_TOKEN=true`.
+  - derives the authoritative UID from the verified Firebase token.
+  - rejects missing tokens (`401 AUTH_ID_TOKEN_REQUIRED`) or mismatched UIDs (`400 AUTH_UID_MISMATCH`).
+  - permits UID-only fallback only when explicitly configured `REQUIRE_ID_TOKEN=false` for isolated local development.
+- Rollout: verify Firebase anonymous sign-in, deployment environment variables, and older mobile client versions before/after production deployment. Older clients without tokens will no longer be able to reserve, list or cancel.
 
 ## Notes
 
