@@ -2,6 +2,8 @@ const crypto = require('crypto');
 const cors = require('cors');
 const express = require('express');
 const admin = require('./firebaseAdmin');
+const { readConfig } = require('./observability/config');
+const { createRequestIntelligence } = require('./observability/requestContext');
 
 if (!admin.apps.length) {
   const projectId = process.env.FIREBASE_PROJECT_ID;
@@ -37,9 +39,6 @@ const corsMiddleware = cors({
     callback(null, isAllowedCorsOrigin(origin));
   }
 });
-
-app.use(express.json({ limit: '1mb' }));
-app.use((req, res, next) => corsMiddleware(req, res, next));
 
 const LISTINGS = 'listings';
 const LISTING_PRIVATE = 'listing_private';
@@ -242,9 +241,20 @@ function logServerError(event, req, error, extra = {}) {
   });
 }
 
+const requestIntelligenceConfig = readConfig(process.env);
+let requestIntelligence;
+try {
+  requestIntelligence = createRequestIntelligence(requestIntelligenceConfig);
+} catch (_) {
+  // Optional telemetry cannot prevent the API from starting.
+  requestIntelligence = { capture: () => null };
+}
+
 app.use((req, res, next) => {
   req.requestId = crypto.randomUUID();
   const startedAt = Date.now();
+  let enrich;
+  try { enrich = requestIntelligence.capture(req); } catch (_) { /* fail open */ }
   const originalJson = res.json.bind(res);
 
   res.json = (body) => {
@@ -255,29 +265,45 @@ app.use((req, res, next) => {
         ...payload
       };
     }
-    res.locals.responsePayload = payload;
+    res.locals.reasonCode = typeof payload?.code === 'string' ? payload.code : null;
     return originalJson(payload);
   };
 
-  res.on('finish', () => {
+  let completed = false;
+  const complete = (aborted) => {
+    if (completed) return;
+    completed = true;
     const latencyMs = Date.now() - startedAt;
-    const payload = res.locals.responsePayload || {};
-    const reasonCode = payload?.code || null;
-    const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
+    const reasonCode = res.locals.reasonCode || null;
+    const status = aborted ? 499 : res.statusCode;
+    const level = status >= 500 ? 'error' : status >= 400 ? 'warn' : 'info';
+    const route = requestRouteLabel(req);
+    let intelligence = {};
+    try { intelligence = enrich?.({ route, method: req.method, status }) || {}; } catch (_) { /* fail open */ }
 
-    logEvent(level, 'http.request.completed', {
-      requestId: req.requestId,
-      method: req.method,
-      path: requestRouteLabel(req),
-      status: res.statusCode,
-      latencyMs,
-      reasonCode,
-      recipientAuthMode: req.recipientAuthMode || null
-    });
-  });
+    try {
+      logEvent(level, 'http.request.completed', {
+        requestId: req.requestId,
+        method: req.method,
+        path: route,
+        status,
+        latencyMs,
+        reasonCode,
+        recipientAuthMode: req.recipientAuthMode || null,
+        ...(aborted ? { aborted: true } : {}),
+        ...intelligence
+      });
+    } catch (_) { /* logging must not affect API processing */ }
+  };
+  res.once('finish', () => complete(false));
+  res.once('close', () => complete(!res.writableFinished));
 
   next();
 });
+
+// Attach lifecycle observation before parsers and CORS, including early exits.
+app.use(express.json({ limit: '1mb' }));
+app.use((req, res, next) => corsMiddleware(req, res, next));
 
 // Bound work before any database reads/writes. Never trust forwarding headers
 // until the deployment's proxy chain has been explicitly configured.
@@ -1691,6 +1717,18 @@ app.post('/enterprise/listings/:listingId/confirm-pickup', async (req, res) => {
       status == 400 ? 'CONFIRM_PICKUP_FAILED_BUSINESS_RULE' : 'CONFIRM_PICKUP_FAILED_INTERNAL'
     );
   }
+});
+
+// Enabled observation must not delegate to Express's raw parser/stack output.
+// With the feature off, preserve the application's existing error response behavior.
+app.use((error, req, res, next) => {
+  if (!requestIntelligenceConfig.enableRequestIntelligence) return next(error);
+  if (res.headersSent) return next(error);
+  const status = Number.isInteger(error.status) && error.status >= 400 && error.status < 500
+    ? error.status : 500;
+  return errorResponse(res, status,
+    status === 500 ? 'Internal server error.' : 'Invalid request body.',
+    status === 500 ? 'REQUEST_FAILED_INTERNAL' : 'REQUEST_BODY_INVALID');
 });
 
 async function startServer(port = Number(process.env.PORT || 8080)) {

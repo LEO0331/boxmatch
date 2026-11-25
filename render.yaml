@@ -25,3 +25,7 @@ services:
         value: "true"
       - key: CORS_ALLOWED_ORIGINS
         value: "https://leo0331.github.io"
+      - key: ENABLE_REQUEST_INTELLIGENCE
+        value: "false"
+      - key: ENABLE_BOT_VERIFICATION
+        value: "false"
