@@ -45,15 +45,11 @@ describe('enterprise api', () => {
   });
 
   test('enforces unverified daily limit', async () => {
-    const enterpriseKey = 'alias:token flow co';
-    const now = new Date();
-
     for (let i = 0; i < 5; i += 1) {
-      admin.__seed('listings', `existing_${i}`, {
-        enterpriseKey,
-        createdAt: now,
-        status: 'active'
-      });
+      const created = await request(app)
+        .post('/enterprise/listings/create')
+        .send(makeCreatePayload({ displayNameOptional: `Enterprise ${i}` }));
+      expect(created.status).toBe(200);
     }
 
     const res = await request(app)

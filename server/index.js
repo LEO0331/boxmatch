@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const cors = require('cors');
 const express = require('express');
-const admin = require('firebase-admin');
+const admin = require('./firebaseAdmin');
 
 if (!admin.apps.length) {
   const projectId = process.env.FIREBASE_PROJECT_ID;
@@ -23,6 +23,10 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 const app = express();
+// Only operator-configured proxy addresses may supply client forwarding data.
+if (process.env.TRUST_PROXY_CIDRS) {
+  app.set('trust proxy', process.env.TRUST_PROXY_CIDRS.split(',').map((value) => value.trim()).filter(Boolean));
+}
 const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || (process.env.NODE_ENV === 'production' ? 'https://leo0331.github.io' : ''))
   .split(',')
   .map((origin) => origin.trim())
@@ -38,6 +42,8 @@ app.use(express.json({ limit: '1mb' }));
 app.use((req, res, next) => corsMiddleware(req, res, next));
 
 const LISTINGS = 'listings';
+const LISTING_PRIVATE = 'listing_private';
+const SECURITY_BUDGETS = 'security_budgets';
 const RESERVATIONS = 'reservations';
 const ABUSE_SIGNALS = 'abuse_signals';
 const IDEMPOTENCY_KEYS = 'idempotency_keys';
@@ -46,18 +52,13 @@ const KPI_DAILY = 'kpi_daily';
 const KPI_SUMMARY = 'kpi_summary';
 const VERIFIED_ENTERPRISES = 'verified_enterprises';
 const BADGE_RULES = 'badge_rules';
-const UNVERIFIED_DAILY_LIMIT = Math.max(
-  1,
-  Number(process.env.UNVERIFIED_DAILY_LIMIT || 5)
-);
-const RECIPIENT_DAILY_RESERVATION_LIMIT = Math.max(
-  1,
-  Number(process.env.RECIPIENT_DAILY_RESERVATION_LIMIT || 5)
-);
-const LEGACY_RECIPIENT_DAILY_RESERVATION_LIMIT = Math.max(
-  1,
-  Number(process.env.LEGACY_RECIPIENT_DAILY_RESERVATION_LIMIT || 2)
-);
+function positiveLimit(value, fallback) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+const UNVERIFIED_DAILY_LIMIT = positiveLimit(process.env.UNVERIFIED_DAILY_LIMIT, 5);
+const RECIPIENT_DAILY_RESERVATION_LIMIT = positiveLimit(process.env.RECIPIENT_DAILY_RESERVATION_LIMIT, 5);
+const LEGACY_RECIPIENT_DAILY_RESERVATION_LIMIT = positiveLimit(process.env.LEGACY_RECIPIENT_DAILY_RESERVATION_LIMIT, 2);
 const REQUIRE_ID_TOKEN = recipientIdTokenRequired();
 const DEFAULT_BADGE_RULES = {
   enabled: true,
@@ -278,8 +279,36 @@ app.use((req, res, next) => {
   next();
 });
 
+// Bound work before any database reads/writes. Never trust forwarding headers
+// until the deployment's proxy chain has been explicitly configured.
+const requestWindows = new Map();
+app.use(['/enterprise', '/recipient'], (req, res, next) => {
+  const key = sha256(resolveClientIp(req));
+  const now = Date.now();
+  for (const [entry, window] of requestWindows) {
+    if (window.until <= now) requestWindows.delete(entry);
+  }
+  let window = requestWindows.get(key);
+  if (!window) {
+    if (requestWindows.size >= 10000) return errorResponse(res, 429, 'Request limit reached.', 'REQUEST_LIMIT_REACHED');
+    window = { count: 0, until: now + 60000 };
+    requestWindows.set(key, window);
+  }
+  if (++window.count > 300) return errorResponse(res, 429, 'Request limit reached.', 'REQUEST_LIMIT_REACHED');
+  next();
+});
+
+
 app.use('/recipient', async (req, res, next) => {
-  const legacyUid = String(req.body?.claimerUid || '').trim();
+  const suppliedUid = req.body?.claimerUid;
+  // Validate before coercion: JSON objects can override toString/valueOf and
+  // reject this async Express 4 middleware outside its token-verification catch.
+  if (suppliedUid != null && typeof suppliedUid !== 'string') {
+    return errorResponse(
+      res, 400, 'claimerUid must be a string.', 'VALIDATION_CLAIMER_UID_INVALID'
+    );
+  }
+  const legacyUid = (suppliedUid || '').trim();
   const bearerToken = parseBearerToken(req);
 
   if (!bearerToken) {
@@ -419,22 +448,40 @@ async function getBadgeRules() {
   }
 }
 
-function deriveEnterpriseKey(req, payload) {
-  const alias = normalizeAlias(payload.displayNameOptional);
-  if (alias) {
-    return `alias:${alias}`;
+
+async function recordAbuseSignal(signal, req) {
+  const day = utcDayKey(nowDate());
+  const network = sha256(resolveClientIp(req));
+  const budgetRef = db.collection(SECURITY_BUDGETS).doc(sha256(`abuse|${network}|${day}`));
+  const signalRef = db.collection(ABUSE_SIGNALS).doc(sha256(`${network}|${day}|${signal.listingId}|${signal.reason}`));
+  try {
+    return await db.runTransaction(async (tx) => {
+      const budget = await tx.get(budgetRef);
+      const existing = await tx.get(signalRef);
+      if (existing.exists) return true;
+      const count = Number(budget.data()?.count || 0);
+      if (count >= 20) return false;
+      tx.set(budgetRef, { count: count + 1, expiresAt: endOfDay() });
+      tx.set(signalRef, { ...signal, createdAt: nowDate(), expiresAt: new Date(Date.now() + 30 * 86400000) });
+      return true;
+    });
+  } catch (error) {
+    logServerError('abuse.signal.write.failed', req, error);
+    return false;
   }
-  return `ip:${resolveClientIp(req)}`;
 }
 
-async function isEnterpriseVerified(payload) {
-  const alias = normalizeAlias(payload.displayNameOptional);
-  if (!alias) {
+function deriveEnterpriseKey(req) {
+  return req.enterpriseUid ? `uid:${req.enterpriseUid}` : `network:${sha256(resolveClientIp(req))}`;
+}
+
+async function isEnterpriseVerified(payload, ownerUid) {
+  if (!ownerUid) {
     return false;
   }
   const snap = await db
     .collection(VERIFIED_ENTERPRISES)
-    .where('aliasNormalized', '==', alias)
+    .where('ownerUid', '==', ownerUid)
     .where('venueId', '==', String(payload.venueId || ''))
     .where('active', '==', true)
     .limit(1)
@@ -454,7 +501,7 @@ async function computeEnterpriseReservationMetrics(enterpriseKey) {
   }
 
   const listingSnap = await db
-    .collection(LISTINGS)
+    .collection(LISTING_PRIVATE)
     .where('enterpriseKey', '==', enterpriseKey)
     .limit(200)
     .get();
@@ -779,7 +826,7 @@ function errorResponse(res, status, message, code, details) {
   });
 }
 
-async function verifyTokenAndFetchListing(listingId, token) {
+async function verifyTokenAndFetchListing(listingId, token, req) {
   if (!listingId || typeof token !== 'string' || !token || token.length > 256) {
     return { error: 'listingId and token are required.', code: 400 };
   }
@@ -791,20 +838,22 @@ async function verifyTokenAndFetchListing(listingId, token) {
     return { error: 'Listing not found.', code: 404 };
   }
 
-  const data = snap.data() || {};
-  const storedHash = data.editTokenHash || '';
+  const privateRef = db.collection(LISTING_PRIVATE).doc(listingId);
+  const privateSnap = await privateRef.get();
+  const data = { ...snap.data(), ...privateSnap.data() };
+  const storedHash = privateSnap.data()?.editTokenHash || '';
   if (!storedHash) {
     return { error: 'Token has been revoked.', code: 403 };
   }
 
   const incomingHash = sha256(token);
   if (!safeEqual(incomingHash, storedHash)) {
-    await db.collection(ABUSE_SIGNALS).add({
+    await recordAbuseSignal({
       listingId,
       claimerUid: 'enterprise_token',
       reason: 'enterprise_token_mismatch',
       createdAt: nowDate()
-    });
+    }, req);
     logEvent('warn', 'abuse.signal.created', {
       listingId,
       reasonCode: 'ABUSE_ENTERPRISE_TOKEN_MISMATCH'
@@ -812,7 +861,7 @@ async function verifyTokenAndFetchListing(listingId, token) {
     return { error: 'Invalid token.', code: 403 };
   }
 
-  return { ref, data };
+  return { ref, privateRef, data };
 }
 
 app.get('/health', async (_req, res) => {
@@ -909,13 +958,9 @@ app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
       const isExpired = Number.isNaN(expiresAt.getTime()) ? false : expiresAt <= now;
       const unavailable = isExpired || quantityRemaining < qty || status !== 'active';
       if (unavailable) {
-        tx.set(db.collection(ABUSE_SIGNALS).doc(), {
-          listingId,
-          claimerUid,
-          reason: 'reserve_failed_unavailable',
-          createdAt: now
+        throw Object.assign(new Error('This listing is no longer available.'), {
+          abuseSignal: { listingId, claimerUid, reason: 'reserve_failed_unavailable' }
         });
-        throw new Error('This listing is no longer available.');
       }
 
       const nextRemaining = quantityRemaining - qty;
@@ -1000,6 +1045,7 @@ app.post('/recipient/listings/:listingId/reserve', async (req, res) => {
       reservation: reserveResult.reservation
     });
   } catch (error) {
+    if (error.abuseSignal) await recordAbuseSignal(error.abuseSignal, req);
     const message = error?.message || 'Internal server error.';
     const status = [
       'Listing not found.',
@@ -1050,14 +1096,15 @@ app.post('/recipient/listings/:listingId/report-abuse', async (req, res) => {
       );
     }
 
-    await db.collection(ABUSE_SIGNALS).add({
+    const recorded = await recordAbuseSignal({
       listingId,
       claimerUid,
       reservationId: reservationId || null,
       reason,
       source: 'recipient_report',
       createdAt: nowDate()
-    });
+    }, req);
+    if (!recorded) return errorResponse(res, 429, 'Report limit reached.', 'ABUSE_REPORT_LIMIT_REACHED');
     logEvent('warn', 'recipient.abuse.reported', {
       requestId: req.requestId,
       listingId,
@@ -1192,6 +1239,7 @@ app.post('/recipient/reservations/:reservationId/cancel', async (req, res) => {
       idempotentReplay: result.idempotent === true
     });
   } catch (error) {
+    if (error.abuseSignal) await recordAbuseSignal(error.abuseSignal, req);
     const message = error?.message || 'Internal server error.';
     const status = [
       'Reservation not found.',
@@ -1226,8 +1274,14 @@ app.post('/enterprise/listings/create', async (req, res) => {
 
     const token = crypto.randomBytes(24).toString('base64url');
     const now = nowDate();
-    const enterpriseKey = deriveEnterpriseKey(req, payload);
-    const enterpriseVerified = await isEnterpriseVerified(payload);
+    const bearer = parseBearerToken(req);
+    if (bearer) {
+      try { req.enterpriseUid = (await admin.auth().verifyIdToken(bearer)).uid; }
+      catch (_) { return errorResponse(res, 401, 'Invalid ID token.', 'AUTH_ID_TOKEN_INVALID'); }
+    }
+    const enterpriseKey = deriveEnterpriseKey(req);
+    const ownerUid = req.enterpriseUid || null;
+    const enterpriseVerified = await isEnterpriseVerified(payload, ownerUid);
     const listingDraft = {
       ...payload,
       enterpriseKey
@@ -1237,28 +1291,11 @@ app.post('/enterprise/listings/create', async (req, res) => {
       enterpriseVerified
     });
 
-    if (!enterpriseVerified) {
-      const from = startOfDay(now);
-      const to = endOfDay(now);
-      const dailySnap = await db
-        .collection(LISTINGS)
-        .where('enterpriseKey', '==', enterpriseKey)
-        .where('createdAt', '>=', from)
-        .where('createdAt', '<', to)
-        .get();
-      if (dailySnap.size >= UNVERIFIED_DAILY_LIMIT) {
-        return errorResponse(
-          res,
-          429,
-          `Unverified enterprise daily posting limit reached (${UNVERIFIED_DAILY_LIMIT}).`,
-          'UNVERIFIED_DAILY_LIMIT_REACHED'
-        );
-      }
-    }
-
     const listingRef = db.collection(LISTINGS).doc();
-
-    await listingRef.set({
+    const privateRef = db.collection(LISTING_PRIVATE).doc(listingRef.id);
+    const budgetRef = db.collection(SECURITY_BUDGETS).doc(sha256('posting|' + resolveClientIp(req) + '|' + utcDayKey(now)));
+    const principalBudgetRef = db.collection(SECURITY_BUDGETS).doc(sha256('posting|' + enterpriseKey + '|' + utcDayKey(now)));
+    const listingData = {
       venueId: payload.venueId,
       pickupPointText: payload.pickupPointText,
       itemType: payload.itemType,
@@ -1276,11 +1313,26 @@ app.post('/enterprise/listings/create', async (req, res) => {
       status: 'active',
       enterpriseVerified,
       enterpriseBadges,
-      enterpriseKey,
-      editTokenHash: sha256(token),
       createdAt: now,
       updatedAt: now
+    };
+
+    const admitted = await db.runTransaction(async (tx) => {
+      const networkBudget = await tx.get(budgetRef);
+      const principalBudget = await tx.get(principalBudgetRef);
+      const networkCount = Number(networkBudget.data()?.count || 0);
+      const principalCount = Number(principalBudget.data()?.count || 0);
+      if (networkCount >= UNVERIFIED_DAILY_LIMIT * 10 || (!enterpriseVerified &&
+          (networkCount >= UNVERIFIED_DAILY_LIMIT || principalCount >= UNVERIFIED_DAILY_LIMIT))) return false;
+      tx.set(budgetRef, { count: networkCount + 1, expiresAt: endOfDay(now) });
+      // Anonymous principals use a network hash but a separate budget namespace.
+      tx.set(principalBudgetRef, { count: principalCount + 1, expiresAt: endOfDay(now) });
+      tx.set(listingRef, listingData);
+      tx.set(privateRef, { enterpriseKey, ownerUid, editTokenHash: sha256(token), createdAt: now });
+      return true;
     });
+    if (!admitted) return errorResponse(res, 429, 'Daily posting limit reached.', 'UNVERIFIED_DAILY_LIMIT_REACHED');
+
 
     try {
       await trackKpiEvent({
@@ -1315,7 +1367,7 @@ app.post('/enterprise/listings/:listingId/validate-token', async (req, res) => {
   try {
     const listingId = req.params.listingId;
     const token = req.body?.token;
-    const verified = await verifyTokenAndFetchListing(listingId, token);
+    const verified = await verifyTokenAndFetchListing(listingId, token, req);
     if (verified.error) {
       return errorResponse(
         res,
@@ -1342,7 +1394,7 @@ app.post('/enterprise/listings/:listingId/reservations', async (req, res) => {
   try {
     const listingId = req.params.listingId;
     const token = req.body?.token;
-    const verified = await verifyTokenAndFetchListing(listingId, token);
+    const verified = await verifyTokenAndFetchListing(listingId, token, req);
     if (verified.error) {
       return errorResponse(
         res,
@@ -1394,7 +1446,7 @@ app.post('/enterprise/listings/:listingId/update', async (req, res) => {
     const listingId = req.params.listingId;
     const token = req.body?.token;
 
-    const verified = await verifyTokenAndFetchListing(listingId, token);
+    const verified = await verifyTokenAndFetchListing(listingId, token, req);
     if (verified.error) {
       return errorResponse(res, verified.code, verified.error, 'UPDATE_LISTING_FORBIDDEN');
     }
@@ -1418,56 +1470,35 @@ app.post('/enterprise/listings/:listingId/update', async (req, res) => {
       );
     }
 
-    const existing = verified.data;
-    const merged = {
-      ...existing,
-      ...payload
-    };
-    const timelineTouched = [
-      'pickupStartAt',
-      'pickupEndAt',
-      'expiresAt'
-    ].some((key) => Object.hasOwn(payload, key));
-    if (timelineTouched) {
+    const result = await db.runTransaction(async (tx) => {
+      const listingSnap = await tx.get(verified.ref);
+      const privateSnap = await tx.get(verified.privateRef);
+      if (!listingSnap.exists || !safeEqual(privateSnap.data()?.editTokenHash, sha256(token))) {
+        return { status: 403, error: 'Invalid or revoked edit token.', code: 'UPDATE_LISTING_FORBIDDEN' };
+      }
+      const existing = listingSnap.data();
+      const metadata = privateSnap.data();
+      const merged = { ...existing, ...payload };
       const timelineErrors = [];
       validateListingTimeline(merged, timelineErrors);
-      if (timelineErrors.length > 0) {
-        return errorResponse(
-          res,
-          400,
-          'Validation failed.',
-          'VALIDATION_UPDATE_LISTING_FAILED',
-          timelineErrors
-        );
+      if (timelineErrors.length) return { status: 400, error: 'Validation failed.', code: 'VALIDATION_UPDATE_LISTING_FAILED', details: timelineErrors };
+      const enterpriseVerified = await isEnterpriseVerified(merged, metadata.ownerUid);
+      const enterpriseBadges = await resolveEnterpriseBadges({
+        listingData: { ...merged, enterpriseKey: metadata.enterpriseKey }, enterpriseVerified
+      });
+      const updateDoc = { ...payload, enterpriseVerified, enterpriseBadges, updatedAt: nowDate() };
+      if (Object.hasOwn(payload, 'quantityTotal')) {
+        const allocated = Number(existing.quantityTotal) - Number(existing.quantityRemaining);
+        if (payload.quantityTotal < allocated) return { status: 400, error: 'Quantity cannot be lower than allocated stock.', code: 'VALIDATION_UPDATE_LISTING_FAILED' };
+        updateDoc.quantityRemaining = payload.quantityTotal - allocated;
+        updateDoc.status = resolveListingStatus({ currentStatus: existing.status,
+          expiresAt: merged.expiresAt, quantityRemaining: updateDoc.quantityRemaining });
       }
-    }
-    const enterpriseKey =
-      String(existing.enterpriseKey || '').trim() ||
-      deriveEnterpriseKey(req, merged);
-    const enterpriseVerified = await isEnterpriseVerified(merged);
-    const enterpriseBadges = await resolveEnterpriseBadges({
-      listingData: {
-        ...merged,
-        enterpriseKey
-      },
-      enterpriseVerified
+      tx.update(verified.ref, updateDoc);
+      return { fields: Object.keys(updateDoc) };
     });
-    const quantityTotal = payload.quantityTotal ?? existing.quantityTotal;
-    const prevRemaining = Number(existing.quantityRemaining ?? 0);
-    const nextRemaining = Math.max(0, Math.min(prevRemaining, quantityTotal));
-
-    const updateDoc = {
-      ...payload,
-      enterpriseVerified,
-      enterpriseBadges,
-      enterpriseKey,
-      quantityRemaining: nextRemaining,
-      status: nextRemaining === 0 ? 'reserved' : 'active',
-      updatedAt: nowDate()
-    };
-
-    await verified.ref.update(updateDoc);
-    return res.json({ ok: true, code: 'UPDATE_LISTING_SUCCESS', listingId, updatedFields: Object.keys(updateDoc) });
+    if (result.error) return errorResponse(res, result.status, result.error, result.code, result.details);
+    return res.json({ ok: true, code: 'UPDATE_LISTING_SUCCESS', listingId, updatedFields: result.fields });
   } catch (error) {
     logServerError('enterprise.listing.update.failed', req, error, {
       reasonCode: 'UPDATE_LISTING_FAILED_INTERNAL'
@@ -1486,16 +1517,19 @@ app.post('/enterprise/listings/:listingId/rotate-token', async (req, res) => {
     const listingId = req.params.listingId;
     const token = req.body?.token;
 
-    const verified = await verifyTokenAndFetchListing(listingId, token);
+    const verified = await verifyTokenAndFetchListing(listingId, token, req);
     if (verified.error) {
       return errorResponse(res, verified.code, verified.error, 'ROTATE_TOKEN_FORBIDDEN');
     }
 
     const newToken = crypto.randomBytes(24).toString('base64url');
-    await verified.ref.update({
-      editTokenHash: sha256(newToken),
-      updatedAt: nowDate()
+    const rotated = await db.runTransaction(async (tx) => {
+      const current = await tx.get(verified.privateRef);
+      if (!safeEqual(current.data()?.editTokenHash, sha256(token))) return false;
+      tx.update(verified.privateRef, { editTokenHash: sha256(newToken), updatedAt: nowDate() });
+      return true;
     });
+    if (!rotated) return errorResponse(res, 403, 'Invalid or revoked edit token.', 'ROTATE_TOKEN_FORBIDDEN');
 
     return res.json({ ok: true, code: 'ROTATE_TOKEN_SUCCESS', listingId, token: newToken });
   } catch (error) {
@@ -1516,15 +1550,18 @@ app.post('/enterprise/listings/:listingId/revoke-token', async (req, res) => {
     const listingId = req.params.listingId;
     const token = req.body?.token;
 
-    const verified = await verifyTokenAndFetchListing(listingId, token);
+    const verified = await verifyTokenAndFetchListing(listingId, token, req);
     if (verified.error) {
       return errorResponse(res, verified.code, verified.error, 'REVOKE_TOKEN_FORBIDDEN');
     }
 
-    await verified.ref.update({
-      editTokenHash: '',
-      updatedAt: nowDate()
+    const revoked = await db.runTransaction(async (tx) => {
+      const current = await tx.get(verified.privateRef);
+      if (!safeEqual(current.data()?.editTokenHash, sha256(token))) return false;
+      tx.update(verified.privateRef, { editTokenHash: '', updatedAt: nowDate() });
+      return true;
     });
+    if (!revoked) return errorResponse(res, 403, 'Invalid or revoked edit token.', 'REVOKE_TOKEN_FORBIDDEN');
 
     return res.json({ ok: true, code: 'REVOKE_TOKEN_SUCCESS', listingId, revoked: true });
   } catch (error) {
@@ -1554,7 +1591,7 @@ app.post('/enterprise/listings/:listingId/confirm-pickup', async (req, res) => {
       );
     }
 
-    const verified = await verifyTokenAndFetchListing(listingId, token);
+    const verified = await verifyTokenAndFetchListing(listingId, token, req);
     if (verified.error) {
       return errorResponse(res, verified.code, verified.error, 'CONFIRM_PICKUP_FORBIDDEN');
     }
@@ -1565,6 +1602,10 @@ app.post('/enterprise/listings/:listingId/confirm-pickup', async (req, res) => {
 
       const listingSnap = await tx.get(listingRef);
       const reservationSnap = await tx.get(reservationRef);
+      const credentialSnap = await tx.get(verified.privateRef);
+      if (!safeEqual(credentialSnap.data()?.editTokenHash, sha256(token))) {
+        throw new Error('Invalid or revoked edit token.');
+      }
 
       if (!listingSnap.exists) {
         throw new Error('Listing not found.');
@@ -1583,13 +1624,7 @@ app.post('/enterprise/listings/:listingId/confirm-pickup', async (req, res) => {
         throw new Error('Reservation is not active.');
       }
       if (String(reservationData.pickupCode || '') !== String(pickupCode || '')) {
-        tx.set(db.collection(ABUSE_SIGNALS).doc(), {
-          listingId,
-          claimerUid: reservationData.claimerUid || 'unknown',
-          reason: 'pickup_code_mismatch',
-          createdAt: nowDate()
-        });
-        throw new Error('Pickup code does not match.');
+        throw Object.assign(new Error('Pickup code does not match.'), { abuseSignal: { listingId, reason: 'pickup_code_mismatch' } });
       }
 
       tx.update(reservationRef, { status: 'completed' });
@@ -1631,8 +1666,9 @@ app.post('/enterprise/listings/:listingId/confirm-pickup', async (req, res) => {
       confirmed: true
     });
   } catch (error) {
+    if (error.abuseSignal) await recordAbuseSignal(error.abuseSignal, req);
     const message = error?.message || 'Internal server error.';
-    const status = [
+    const status = message === 'Invalid or revoked edit token.' ? 403 : [
       'Listing not found.',
       'Reservation not found.',
       'Reservation does not match listing.',
@@ -1657,14 +1693,20 @@ app.post('/enterprise/listings/:listingId/confirm-pickup', async (req, res) => {
   }
 });
 
-function startServer(port = Number(process.env.PORT || 8080)) {
+async function startServer(port = Number(process.env.PORT || 8080)) {
+  const { migrateListingPrivacy } = require('../scripts/migrate_listing_privacy');
+  const migration = await migrateListingPrivacy(db, admin.firestore.FieldValue);
+  logEvent('info', 'listing.privacy.migration.completed', migration);
   return app.listen(port, () => {
     console.log(`boxmatch server listening on ${port}`);
   });
 }
 
 if (require.main === module) {
-  startServer();
+  startServer().catch(() => {
+    logEvent('error', 'server.start.failed');
+    process.exitCode = 1;
+  });
 }
 
 module.exports = {
@@ -1693,6 +1735,7 @@ module.exports = {
     utcDayKey,
     validateAndBuildCreate,
     validateListingTimeline,
-    validateAndBuildUpdate
+    validateAndBuildUpdate,
+    resetRequestLimits: () => requestWindows.clear()
   }
 };

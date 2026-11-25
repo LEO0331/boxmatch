@@ -30,7 +30,8 @@ function createMockFirestoreState() {
   return {
     collections: new Map(),
     idCounter: 0,
-    verifyIdTokenImpl: null
+    verifyIdTokenImpl: null,
+    transactionTail: Promise.resolve()
   };
 }
 
@@ -51,6 +52,10 @@ function generateId() {
 function applyPatch(existing, patch) {
   const next = clone(existing || {});
   for (const [key, rawValue] of Object.entries(patch || {})) {
+    if (rawValue && rawValue.__fieldValueOp === 'delete') {
+      delete next[key];
+      continue;
+    }
     if (rawValue && rawValue.__fieldValueOp === 'increment') {
       const current = Number(next[key] || 0);
       next[key] = current + Number(rawValue.operand || 0);
@@ -64,6 +69,8 @@ function applyPatch(existing, patch) {
 function makeDocRef(collectionName, id) {
   return {
     _type: 'doc',
+    _collectionName: collectionName,
+    path: `${collectionName}/${id}`,
     id,
     async get() {
       const map = getCollectionMap(collectionName);
@@ -85,6 +92,9 @@ function makeDocRef(collectionName, id) {
         throw new Error('Document does not exist');
       }
       map.set(id, applyPatch(prev, data));
+    },
+    async delete() {
+      getCollectionMap(collectionName).delete(id);
     }
   };
 }
@@ -154,19 +164,57 @@ const db = {
   collection(name) {
     return makeCollectionRef(name);
   },
-  async runTransaction(callback) {
-    const tx = {
-      async get(refOrQuery) {
-        return refOrQuery.get();
-      },
-      set(ref, data, options) {
-        return ref.set(data, options);
-      },
-      update(ref, data) {
-        return ref.update(data);
+  runTransaction(callback) {
+    // Serialize callbacks so concurrent admission checks see committed state.
+    // Writes are staged until success; a callback failure leaves no partial data.
+    const transaction = state.transactionTail.then(async () => {
+      const writes = [];
+      const tx = {
+        async get(refOrQuery) {
+          if (writes.length) {
+            throw new Error('Firestore transactions require all reads before writes');
+          }
+          return refOrQuery.get();
+        },
+        set(ref, data, options = {}) {
+          writes.push({ operation: 'set', ref, data: clone(data), options });
+          return tx;
+        },
+        update(ref, data) {
+          writes.push({ operation: 'update', ref, data: clone(data) });
+          return tx;
+        },
+        delete(ref) {
+          writes.push({ operation: 'delete', ref });
+          return tx;
+        }
+      };
+      const result = await callback(tx);
+      const stagedCollections = new Map();
+      for (const { operation, ref, data, options } of writes) {
+        const collectionName = ref._collectionName;
+        if (!stagedCollections.has(collectionName)) {
+          stagedCollections.set(collectionName, new Map(getCollectionMap(collectionName)));
+        }
+        const staged = stagedCollections.get(collectionName);
+        const previous = staged.get(ref.id);
+        if (operation === 'delete') {
+          staged.delete(ref.id);
+        } else if (operation === 'update') {
+          if (previous === undefined) throw new Error('Document does not exist');
+          staged.set(ref.id, applyPatch(previous, data));
+        } else {
+          staged.set(ref.id, options.merge ? applyPatch(previous, data) : clone(data));
+        }
       }
-    };
-    return callback(tx);
+      for (const [name, collection] of stagedCollections) {
+        state.collections.set(name, collection);
+      }
+      return result;
+    });
+    // Rejected transactions must not prevent later transactions from running.
+    state.transactionTail = transaction.catch(() => {});
+    return transaction;
   }
 };
 
@@ -201,6 +249,7 @@ const admin = {
     state.collections = new Map();
     state.idCounter = 0;
     state.verifyIdTokenImpl = null;
+    state.transactionTail = Promise.resolve();
     admin.apps = [];
   },
   __setVerifyIdTokenImpl(fn) {
@@ -217,6 +266,9 @@ const admin = {
 };
 
 admin.firestore.FieldValue = {
+  delete() {
+    return { __fieldValueOp: 'delete' };
+  },
   increment(operand) {
     return {
       __fieldValueOp: 'increment',

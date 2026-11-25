@@ -298,3 +298,40 @@ Current coverage focus:
   1. set matching `verified_enterprises.active=false`
   2. revoke token for active listings
   3. review abuse signals in `abuse_signals`
+
+## Security hardening (2026-11-25)
+
+Enterprise verification now requires a Firebase ID token whose UID matches the
+`ownerUid` of an active `verified_enterprises` record at the submitted venue.
+Aliases alone never grant verification. Populate `ownerUid` through the reviewed
+seed input and run `npm run seed:verified`; missing ownership remains unverified.
+The web client initializes anonymous Firebase identity before creating a listing.
+Enterprise edit links remain bearer capabilities, now carried in URL fragments.
+
+On `npm start`, an idempotent migration completes before the HTTP listener opens.
+It moves listing credentials/enterprise keys into the server-only `listing_private`
+collection, removes public copies, and clears legacy unowned verification/reputation
+badges. Existing edit tokens remain valid. Startup fails if migration cannot finish.
+The standalone equivalent is `node ../scripts/migrate_listing_privacy.js` from
+`server/`, with the documented Admin environment credentials. Coordinate rollout
+so old server instances no longer write legacy public fields.
+
+Daily posting admission uses atomic Firestore counters, scoped to server-derived
+principal and network identities. Unverified posts share the configured daily
+network cap; verified posts still have a network ceiling of ten times that cap.
+Alias changes and anonymous account cycling cannot reset the network counter.
+Requests to enterprise/recipient routes are capped at 300 per minute per network
+per server instance, before authentication/database work. Abuse signals deduplicate
+per network/listing/reason/day and share a persistent 20-write daily network budget.
+Counter expiry is enforced by day-specific IDs; deploy `firestore.indexes.json` to
+enable TTL cleanup of counters and 30-day abuse records. Client writes/reads to
+`listing_private` and `security_budgets` are explicitly denied by Firestore rules.
+
+Proxy addresses are untrusted by default. Set `TRUST_PROXY_CIDRS` only to the actual
+trusted reverse proxy CIDRs after verifying the hosting network and forwarding
+behavior. Otherwise upstream proxy users share a network budget. Never set blanket
+proxy trust or derive identity from an arbitrary `X-Forwarded-For` header.
+
+Dependencies now use Firebase Admin's modular SDK through a small adapter.
+The patched rimraf override is required until the upstream Google clients replace
+their vulnerable v5 dependency. Recheck `npm audit` when updating these clients.

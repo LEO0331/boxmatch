@@ -18,6 +18,24 @@ describe('production security regression tests', () => {
   beforeEach(() => admin.__reset());
   afterEach(() => jest.restoreAllMocks());
 
+  test.each([
+    { toString: null, valueOf: null },
+    { toString: 'not callable' },
+    [],
+    123,
+    true
+  ])('rejects non-string claimerUid before authentication without crashing (%j)', async (claimerUid) => {
+    const response = await request(app)
+      .post('/recipient/reservations/list')
+      .send({ claimerUid });
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe('VALIDATION_CLAIMER_UID_INVALID');
+    expect(admin.__dump('reservations')).toEqual([]);
+
+    const healthy = await request(app).get('/health');
+    expect(healthy.status).toBe(200);
+  });
+
   test('missing bearer token cannot read or cancel another recipient reservation', async () => {
     admin.__seed('reservations', 'reservation_secret', {
       claimerUid: 'victim', listingId: 'listing_1', pickupCode: '1234',

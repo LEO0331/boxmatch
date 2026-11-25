@@ -8,6 +8,7 @@ import '../../../../core/i18n/language_menu_button.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/load_error_view.dart';
 import '../../../../core/utils/date_time_formatters.dart';
+import '../../../../core/utils/enterprise_edit_link.dart';
 import '../../../surplus/domain/listing_input.dart';
 import '../../../surplus/domain/listing_visibility.dart';
 import '../../../surplus/domain/reservation.dart';
@@ -641,6 +642,7 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
           context,
         ).showSnackBar(const SnackBar(content: Text('Listing updated.')));
       } else {
+        await dependencies.identityService.ensureRecipientUid();
         final result = await dependencies.repository.createListing(input);
         final link = _buildEditLink(result.listingId, result.editToken);
 
@@ -672,13 +674,11 @@ class _EnterpriseListingPageState extends State<EnterpriseListingPage> {
   }
 
   String _buildEditLink(String listingId, String token) {
-    final base = Uri.base;
-    final uri = base.replace(
-      path: '/enterprise/edit/$listingId',
-      queryParameters: {'token': token},
-      fragment: null,
+    return buildEnterpriseEditLink(
+      base: Uri.base,
+      listingId: listingId,
+      token: token,
     );
-    return uri.toString();
   }
 
   Future<void> _copyEditLink() async {

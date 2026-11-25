@@ -2,9 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { createRequire } = require('module');
-const requireFromCwd = createRequire(path.join(process.cwd(), 'package.json'));
-const admin = requireFromCwd('firebase-admin');
+const admin = require('../server/firebaseAdmin');
 
 function fail(message) {
   console.error(message);
@@ -13,6 +11,16 @@ function fail(message) {
 
 function normalizeAlias(value) {
   return String(value || '').trim().toLowerCase();
+}
+
+function normalizeOwnerUid(value) {
+  // Missing ownership never inherits trust from the display alias. Explicitly
+  // store null on upsert so removing ownership also clears an old binding.
+  if (value == null) return null;
+  if (typeof value !== 'string' || !value.trim() || value.trim().length > 128) {
+    throw new Error('ownerUid must be a non-empty Firebase UID string (at most 128 characters).');
+  }
+  return value.trim();
 }
 
 function initAdminFromEnv() {
@@ -74,6 +82,7 @@ async function main() {
   let upserted = 0;
   for (const entry of records) {
     const aliasNormalized = normalizeAlias(entry.aliasNormalized);
+    const ownerUid = normalizeOwnerUid(entry.ownerUid);
     const venueId = String(entry.venueId || '').trim();
     const active = entry.active !== false;
     const reviewedBy = String(entry.reviewedBy || 'ops').trim();
@@ -95,6 +104,7 @@ async function main() {
     await collection.doc(docId).set(
       {
         aliasNormalized,
+        ownerUid,
         venueId,
         active,
         reviewedBy,
@@ -137,7 +147,11 @@ async function main() {
   );
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}
+
+module.exports = { normalizeOwnerUid };

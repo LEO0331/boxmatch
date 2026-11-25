@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const admin = require('firebase-admin');
+const admin = require('../server/firebaseAdmin');
 
 const projectId = process.env.FIREBASE_PROJECT_ID;
 const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;

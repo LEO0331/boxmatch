@@ -209,7 +209,7 @@ class FirestoreSurplusRepository implements SurplusRepository {
 
     final response = await _postJson('/enterprise/listings/create', {
       'data': _listingInputToApiData(input),
-    });
+    }, includeAuth: true);
 
     final listingId = response['listingId'] as String?;
     final token = response['token'] as String?;

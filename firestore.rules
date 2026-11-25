@@ -22,6 +22,14 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    match /listing_private/{listingId} {
+      allow read, write: if false;
+    }
+
+    match /security_budgets/{budgetId} {
+      allow read, write: if false;
+    }
+
     match /abuse_signals/{signalId} {
       // Abuse signals are server-side only.
       allow create: if false;

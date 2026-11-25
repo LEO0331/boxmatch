@@ -29,5 +29,8 @@
       ]
     }
   ],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    { "collectionGroup": "security_budgets", "fieldPath": "expiresAt", "ttl": true, "indexes": [] },
+    { "collectionGroup": "abuse_signals", "fieldPath": "expiresAt", "ttl": true, "indexes": [] }
+  ]
 }
