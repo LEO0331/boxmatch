@@ -57,6 +57,11 @@ To enable Firebase mode in production:
 
 This project now uses a standalone Node API in `server/` (Render deploy) instead of Firebase Functions, so you can stay on Firebase Spark plan.
 
+Optional [request intelligence](docs/REQUEST_INTELLIGENCE.md) enriches API logs with
+privacy-conscious traffic classification and behavioral risk signals. Phase 1 is
+observation-only and disabled by default; it cannot observe static GitHub Pages
+traffic or direct Firestore reads.
+
 Set your API URL when building/running Flutter:
 
 ```bash
