@@ -198,7 +198,7 @@ TrafficOverview fixtureOverview({
   dataQuality: {
     'stale': stale,
     'currentDayPartial': true,
-    if (supportedPeriods != null) 'supportedPeriods': supportedPeriods,
+    'supportedPeriods': ?supportedPeriods,
     'issues': ['MISSING_DAYS'],
     'flags': {
       'trafficAggregation': true,

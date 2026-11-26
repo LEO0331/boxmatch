@@ -205,7 +205,7 @@ test.describe('administrator-enabled build with synthetic services', () => {
     await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeDisabled();
     await expect(page.getByRole('button', { name: 'Export CSV', exact: true })).toBeEnabled();
     await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/);
-    await expect(page.locator('meta[name="referrer"]')).toHaveAttribute('content', 'no-referrer');
+    await expect(page.locator('meta[name="referrer"]')).toHaveAttribute('content', 'strict-origin');
     await changePeriod(page, 30);
     await expect.poll(() => state.overview.at(-1)).toBe(30);
     await changePeriod(page, 90);

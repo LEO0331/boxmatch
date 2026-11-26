@@ -58,7 +58,7 @@ test('initial telemetry is opt-in, finite and excludes arbitrary URL data', asyn
       campaignSource: 'google', campaignMedium: 'organic' });
     expect(JSON.stringify(visits)).not.toContain('PRIVATE');
   }
-  await expect(page.locator('meta[name="referrer"]')).toHaveAttribute('content', 'no-referrer');
+  await expect(page.locator('meta[name="referrer"]')).toHaveAttribute('content', 'strict-origin');
   await page.evaluate(() => { location.hash = '/map'; });
   await page.waitForTimeout(500);
   expect(visits).toHaveLength(enabled ? 1 : 0);
