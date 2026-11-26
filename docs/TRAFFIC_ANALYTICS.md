@@ -43,7 +43,7 @@ human.
 Only `utm_source` and `utm_medium` are considered; allowlisted values become bounded
 categories, unknown values become `other` or are discarded. Arbitrary campaign
 strings, `utm_content`, advertising identifiers, and full source URLs are not
-collected. `web/index.html` retains `no-referrer`. The client extracts only a host
+collected. `web/index.html` uses `strict-origin` (origin only; no path or query), preserving map tile access. The client extracts only a host
 from `document.referrer` when the browser exposes one; suppressed information stays
 `direct_or_unknown`. Referrers can be absent or spoofed.
 
@@ -156,7 +156,7 @@ being restored under a new ID that could double-count a successful commit.
 These are best-effort statistics. Capacity eviction, process restarts, crashes,
 exhausted budgets, prolonged Firestore outages, or an expired pending day can lose
 data. A bounded shutdown flush is attempted but Render termination can interrupt it.
-No guaranteed delivery, audit-grade accounting, or cross-instance unique identity is
+Normal flushes report a configurable deadline; an already submitted transaction retains its slot until settlement, with no overlapping retry. An indefinitely hung SDK operation can still require a service restart. No guaranteed delivery, audit-grade accounting, or cross-instance unique identity is
 claimed. Business operations continue when analytics fails.
 
 ## Free-tier cost and resource budgets
@@ -198,6 +198,7 @@ Missing optional configuration degrades safely instead of preventing startup.
 | Backend variable | Default | Accepted bound |
 |---|---:|---|
 | `TRAFFIC_FLUSH_INTERVAL_MS` | 300000 | 60000–3600000 |
+| `TRAFFIC_FLUSH_TIMEOUT_MS` | 30000 | 1000–60000 |
 | `TRAFFIC_RETENTION_DAYS` | 90 | 7–365 |
 | `TRAFFIC_MAX_PENDING_DAYS` | 3 | 1–7 |
 | `TRAFFIC_MAX_ASN_BUCKETS` | 100 | 1–100 |
@@ -256,9 +257,9 @@ npm run export:traffic:30d
 # Or from repository root: node scripts/export_traffic_csv.js 7
 ```
 
-CSV rows have `dayKey,stream,dimension,key,count`. Export accepts 1–90 days and
+CSV rows have `dayKey,stream,dimension,key,count,status`. Missing, invalid and unsupported days have an explicit coverage row with an empty count; valid zero observations remain zero. Export accepts 1–90 days and
 writes `reports/traffic-daily-START-to-END.csv` under the current directory. Missing
-days produce no fabricated traffic. Only allowlisted counters/dimensions are exported.
+days are explicitly marked, not treated as zero traffic. Only allowlisted counters/dimensions are exported.
 
 Daily aggregates default to 90-day retention. Run cleanup in dry-run mode first,
 review the bounded result, then explicitly apply. Retain deduplication markers

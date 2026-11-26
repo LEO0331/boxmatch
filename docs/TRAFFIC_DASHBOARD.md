@@ -86,7 +86,7 @@ https://YOUR_GITHUB_PAGES_HOST/boxmatch/#/admin/traffic
 These routes are outside the public navigation shell and excluded from frontend
 visit telemetry. Hash routing preserves refresh/direct navigation under the
 `/boxmatch/` base path. Administrator pages apply noindex metadata and retain the
-existing no-referrer policy. Neither noindex nor an undisclosed URL is access
+existing strict-origin policy (origin only). Neither noindex nor an undisclosed URL is access
 control. Authenticated API responses use private/no-store caching headers and are
 not intended for service-worker or persistent browser storage.
 
@@ -101,7 +101,7 @@ Protected GET endpoints:
 /admin/traffic/export?days=7
 ```
 
-The UI offers the three standard periods. The API accepts integer `days` from 1
+The UI offers the supported subset of the three standard periods. The API accepts integer `days` from 1
 to the configured maximum (90 by default), with a 7-day default. Equivalent values
 such as `7` and `07` share the same normalized UTC range/cache key. Unknown query
 parameters and custom start/end selectors are rejected rather than interpreted as
@@ -129,7 +129,7 @@ Defaults are intentionally conservative:
 | `ENABLE_TRAFFIC_ADMIN` | `false` | Exact `true` enables |
 | `TRAFFIC_ADMIN_CACHE_TTL_MS` | 60000 | 1000–300000 ms |
 | `TRAFFIC_ADMIN_CACHE_MAX_ENTRIES` | 32 | 1–32 |
-| `TRAFFIC_ADMIN_MAX_QUERY_DAYS` | 90 | 1–90 |
+| `TRAFFIC_ADMIN_MAX_QUERY_DAYS` | 90 | 7–90 (values 1–6 are raised to 7) |
 | `TRAFFIC_ADMIN_RATE_LIMIT_PER_MINUTE` | 10 per administrator | 1–30 |
 | `TRAFFIC_ADMIN_GLOBAL_RATE_LIMIT_PER_MINUTE` | 60 per process | 1–120 |
 | `TRAFFIC_ADMIN_READ_BUDGET_PER_DAY` | 3000 per process | 1–10000 |
@@ -138,10 +138,10 @@ Defaults are intentionally conservative:
 | `TRAFFIC_ADMIN_QUERY_CONCURRENCY` | 2 | 1–2 |
 | `TRAFFIC_ADMIN_QUERY_TIMEOUT_MS` | 5000 | 100–10000 ms |
 
-The UI offers 7-, 30- and 90-day periods, manual refresh with a 30-second cooldown,
+The UI offers the supported subset of 7-, 30- and 90-day periods advertised by the overview API, manual refresh with a 30-second cooldown,
 and no high-frequency polling. Equivalent queries share a short-lived in-memory
 snapshot and concurrent work. Exports reuse that snapshot rather than reading the
-same daily documents again. Authentication and database work have separate bounded
+same daily documents again. Missing/malformed headers do not consume authenticated operation allowance. Candidate bearer verification has a separate process-wide limit (twice the authenticated global limit, at least 10); forged bearer traffic can still saturate pre-authentication capacity. Authentication and database work have separate bounded
 concurrency and timeouts; resource limits are enforced before database work starts.
 The query service permits two active database queries and uses sequential batches
 of at most 15 daily documents with the real SDK (90 days needs six batch RPCs).
@@ -213,8 +213,7 @@ contain only sanitized aggregates, use safe filenames, and retain formula-inject
 protection. Missing, invalid or unsupported days are marked explicitly with empty
 observation values rather than zero-valued observations. No temporary public file
 or public download URL is created. The existing operator-side
-`npm run export:traffic:7d` and `npm run export:traffic:30d` remain available; their
-CLI missing-day behavior is documented separately from the dashboard download.
+`npm run export:traffic:7d` and `npm run export:traffic:30d` remain available; both use the same validated daily records and CSV observation-status column.
 
 For an individual suspicious event, an authorized operator can separately inspect
 Render application logs, filtering `http.request.completed` by request ID, status

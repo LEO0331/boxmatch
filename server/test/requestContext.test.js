@@ -65,3 +65,18 @@ test('disabled feature extracts nothing and starts no verification work', () => 
   expect(resolveNetworkIdentity).not.toHaveBeenCalled();
   expect(verifier.check).not.toHaveBeenCalled();
 });
+
+test('authorized admin operations do not contribute to behavioral counters at completion', () => {
+  const network = { ip: '8.8.8.8', ipFingerprint: 'hmac:' + 'a'.repeat(64), identityConfidence: 'trusted' };
+  const intelligence = createRequestIntelligence(readConfig({
+    ENABLE_REQUEST_INTELLIGENCE: 'true', REQUEST_RISK_RATE_THRESHOLD: '1'
+  }), { resolveNetworkIdentity: () => network });
+  const req = request({ 'user-agent': 'Mozilla/5.0' }, { originalUrl: '/admin/traffic/overview' });
+  const complete = () => intelligence.capture(req);
+  for (let i = 0; i < 3; i++) {
+    expect(complete()({ route: '[pre-route-or-unmatched]', method: 'GET', status: 200, skipBehavior: true }).security.signals).toEqual([]);
+  }
+  expect(complete()({ route: '[pre-route-or-unmatched]', method: 'GET', status: 401 }).security.signals).not.toContain('HIGH_REQUEST_FREQUENCY');
+  expect(complete()({ route: '[pre-route-or-unmatched]', method: 'GET', status: 401 }).security.signals).toContain('HIGH_REQUEST_FREQUENCY');
+  intelligence.close();
+});
