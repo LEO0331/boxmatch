@@ -314,3 +314,8 @@ hardware fingerprinting, session ID or paid infrastructure is introduced.
 
 Further phases can evaluate additional operator tools after data quality,
 retention, quota use and privacy have been validated in production.
+
+
+## Passive probe extension
+
+[Passive Security Probe Intelligence](SECURITY_PROBE_INTELLIGENCE.md) optionally adds a bounded `probes` section to the existing daily documents and CSV stream. Requires request intelligence and traffic aggregation; `ENABLE_SECURITY_PROBES=false` by default. Old days remain unobserved rather than zero. No per-request write, fingerprint persistence or enforcement is added. See [overall security architecture](SECURITY_ARCHITECTURE.md).

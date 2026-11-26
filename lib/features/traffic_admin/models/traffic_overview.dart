@@ -63,6 +63,7 @@ class TrafficOverview {
     required this.website,
     required this.network,
     required this.dataQuality,
+    this.probes,
   });
 
   final TrafficPeriod period;
@@ -73,6 +74,7 @@ class TrafficOverview {
   final Map<String, dynamic> website;
   final Map<String, dynamic> network;
   final Map<String, dynamic> dataQuality;
+  final TrafficProbeOverview? probes;
 
   factory TrafficOverview.fromJson(Map<String, dynamic> value) {
     if (value['schemaVersion'] != 1) {
@@ -170,6 +172,7 @@ class TrafficOverview {
       website: _immutableObject(value['website']),
       network: _immutableObject(value['network']),
       dataQuality: _immutableObject(value['dataQuality']),
+      probes: TrafficProbeOverview.tryParse(value['probes'], days),
     );
   }
 }
@@ -206,4 +209,93 @@ class TrafficCsvExport {
   const TrafficCsvExport({required this.filename, required this.content});
   final String filename;
   final String content;
+}
+
+class TrafficProbeOverview {
+  const TrafficProbeOverview({
+    required this.enabled,
+    required this.observedDays,
+    required this.invalidDays,
+    required this.totals,
+    required this.counts,
+  });
+
+  final bool enabled;
+  final int observedDays, invalidDays;
+  final Map<String, dynamic>? totals;
+  final List<int?> counts;
+
+  // Optional version-1 extension: malformed probe data cannot break the
+  // original dashboard; never coerce missing observations into zero.
+  static TrafficProbeOverview? tryParse(Object? raw, List<TrafficDay> days) {
+    if (raw == null) return null;
+    try {
+      final data = _object(raw);
+      final observed = _integer(data['observedDays']);
+      final invalid = _integer(data['invalidDays']);
+      if (data['collectionEnabled'] is! bool ||
+          data['requestedDays'] != days.length ||
+          observed + invalid > days.length) {
+        throw const FormatException('Invalid probe coverage.');
+      }
+      final trend = data['dailyTrends'];
+      if (trend is! List || trend.length != days.length) {
+        throw const FormatException('Invalid probe trend.');
+      }
+      final counts = <int?>[];
+      var observedCount = 0;
+      var invalidCount = 0;
+      for (var i = 0; i < days.length; i++) {
+        final item = _object(trend[i]);
+        if (item['date'] != days[i].date) {
+          throw const FormatException('Invalid probe date.');
+        }
+        switch (item['status']) {
+          case 'available':
+            observedCount++;
+            counts.add(_integer(item['count']));
+          case 'invalid':
+            invalidCount++;
+            if (item['count'] != null) {
+              throw const FormatException('Invalid probe count.');
+            }
+            counts.add(null);
+          case 'not_observed':
+            if (item['count'] != null) {
+              throw const FormatException('Invalid probe count.');
+            }
+            counts.add(null);
+          default:
+            throw const FormatException('Invalid probe status.');
+        }
+      }
+      if (observedCount != observed || invalidCount != invalid) {
+        throw const FormatException('Invalid probe coverage.');
+      }
+      final totals = observed == 0 ? null : _immutableObject(data['totals']);
+      if (totals != null) {
+        for (final key in [
+          'observedRequests', 'matchedRequests', 'correlatedRequests',
+          'repeatRequests', 'multiCategoryRequests', 'success2xx',
+        ]) {
+          _integer(totals[key]);
+        }
+        if (counts.whereType<int>().fold<int>(0, (a, b) => a + b) !=
+            totals['matchedRequests']) {
+          throw const FormatException('Invalid probe total.');
+        }
+      } else if (data['totals'] != null) {
+        throw const FormatException('Unexpected probe totals.');
+      }
+      return TrafficProbeOverview(
+        enabled: data['collectionEnabled'] as bool,
+        observedDays: observed,
+        invalidDays: invalid,
+        totals: totals,
+        counts: List.unmodifiable(counts),
+      );
+    } on FormatException {
+      return null;
+    }
+  }
 }

@@ -1,7 +1,8 @@
 const { test, expect } = require('@playwright/test');
 const { mkdirSync } = require('node:fs');
 const path = require('node:path');
-const { trafficOverview } = require('./fixtures/traffic_overview');
+const { trafficOverview, probeOverview } = require('./fixtures/traffic_overview');
+const { readFile } = require('node:fs/promises');
 
 const enabled = process.env.BOXMATCH_E2E_TRAFFIC_ADMIN_ENABLED === 'true';
 const baseUrl = (process.env.BOXMATCH_E2E_BASE_URL || 'http://127.0.0.1:8787').replace(/\/$/, '');
@@ -88,7 +89,7 @@ async function installFixtures(page, options = {}) {
       state.exports++;
       return route.fulfill({ status: 200, contentType: 'text/csv; charset=utf-8', headers: {
         ...headers(route), 'content-disposition': 'attachment; filename="traffic-fixture.csv"'
-      }, body: 'dayKey,stream,dimension,key,count,status\n2026-11-26,website,totals,pageViews,140,available\n' });
+      }, body: 'dayKey,stream,dimension,key,count,status\n2026-11-26,website,totals,pageViews,140,available\n' + (options.probes ? '2026-11-26,probes,probeTargets,environment,3,available\n' : '') });
     }
     const days = Number(url.searchParams.get('days') || 7);
     state.overview.push(days);
@@ -96,7 +97,7 @@ async function installFixtures(page, options = {}) {
       state.hold = false;
       await new Promise((resolve) => { state.release = resolve; });
     }
-    return json(route, trafficOverview(days));
+    return json(route, options.probes ? probeOverview(days) : trafficOverview(days));
   });
   return state;
 }
@@ -269,6 +270,29 @@ test.describe('administrator-enabled build with synthetic services', () => {
     await expect.poll(() => state.recipientSubjects.length).toBeGreaterThan(previous);
     expect(state.recipientSubjects.at(-1)).toBe('fixture-recipient');
     expect(state.recipientSubjects).not.toContain('fixture-admin');
+  });
+
+  test('protected probe panel renders synthetic aggregates and exports probe CSV', async ({ page }) => {
+    const state = await installFixtures(page, { probes: true });
+    await page.setViewportSize({ width: 1440, height: 1100 });
+    await boot(page, '/admin/traffic');
+    expect(state.overview).toEqual([]);
+    await signIn(page);
+    await dashboard(page);
+    await scrollToHeading(page, 'Security Probe Intelligence');
+    await expect(page.getByText('Collection enabled', { exact: true })).toBeVisible();
+    await expect(page.getByText('Matched probes', { exact: true }).first()).toBeVisible();
+    await expect(page.getByText('Repeat probe requests', { exact: true })).toBeVisible();
+    await expect(page.getByText('Probe 2xx responses', { exact: true })).toBeVisible();
+    await page.mouse.move(700, 500);
+    await page.mouse.wheel(0, -100000);
+    await page.waitForTimeout(200);
+    const download = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Export CSV', exact: true }).click();
+    const csv = await download;
+    expect(await csv.failure()).toBeNull();
+    expect(await readFile(await csv.path(), 'utf8')).toContain(',probes,probeTargets,environment,3,available');
+    expect(state.visits).toEqual([]);
   });
 
   test('Traditional Chinese sign-in and dashboard labels follow the existing language preference', async ({ page }) => {

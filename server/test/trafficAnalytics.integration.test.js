@@ -104,6 +104,27 @@ describe('Phase 2 API integration and operational isolation', () => {
     expect(events('http.request.completed')).toHaveLength(6);
   });
 
+  test('passive probes preserve ordinary 404s, do not write individually and persist only bounded summaries', async () => {
+    const { app, admin, __test } = loadApp({ ENABLE_SECURITY_PROBES: 'true' });
+    const transaction = jest.spyOn(admin.firestore(), 'runTransaction');
+    for (const [method, path] of [['get', '/.env?token=PRIVATE_PROBE_TOKEN'], ['head', '/.git/config'], ['get', '/backup.zip'], ['get', '/wp-login.php']]) {
+      const response = await request(app)[method](path);
+      expect(response.status).toBe(404);
+      expect(response.text || '').not.toMatch(/firebase_private_key|BEGIN PRIVATE KEY|PRIVATE_PROBE_TOKEN/);
+    }
+    expect((await request(app).get('/ordinary-unknown')).status).toBe(404);
+    expect(transaction).not.toHaveBeenCalled();
+    expect(admin.__dump('traffic_daily')).toEqual([]);
+    await __test.trafficAnalytics.flush({ force: true });
+    const stored = admin.__dump('traffic_daily')[0].data;
+    expect(stored.probes).toMatchObject({ observedRequests: 5, matchedRequests: 4, success2xx: 0,
+      probeTargets: { environment: 1, git_metadata: 1, backup: 1, wordpress: 1 },
+      probeMethods: { GET: 3, HEAD: 1 }, probeStatuses: { '404': 4 } });
+    expect(JSON.stringify(stored)).not.toMatch(/hmac:|PRIVATE_PROBE_TOKEN|ipFingerprint|\.env|\.git/);
+    expect(JSON.stringify(events())).not.toContain('PRIVATE_PROBE_TOKEN');
+    await __test.trafficAnalytics.shutdown();
+  });
+
   test('HTTP origin attribution stays separate from user-supplied website acquisition', async () => {
     const { app } = loadApp();
     const response = await request(app).post('/telemetry/visit').set('Origin', 'https://leo0331.github.io')

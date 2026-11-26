@@ -257,3 +257,8 @@ coverage. In-memory collection can lose data on restart/crash; referrers may be
 absent or spoofed. Production proxy configuration under BM-SEC-04 still requires
 independent verification. No live Firebase, Render or repository setting change,
 merge, deployment or production-readiness certification is implied here.
+
+
+## Security probe panel
+
+When enabled or when historical probe observations exist, the protected overview includes an optional [Security Probe Intelligence](SECURITY_PROBE_INTELLIGENCE.md) section: matched/observed requests, correlation counts, daily/hourly UTC activity, target/method/outcome and network dimensions. CSV includes aggregate probe rows and explicit coverage gaps. No new public route, admin permission or direct Firestore read is required. See [overall security architecture](SECURITY_ARCHITECTURE.md).

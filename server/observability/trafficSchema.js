@@ -1,4 +1,9 @@
+const { TARGETS } = require('./probeClassifier');
 const ENUMS = Object.freeze({
+  probeTargets: [...TARGETS, 'unknown'],
+  probeMethods: ['GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE', 'CONNECT', 'TRACE', 'other', 'unknown'],
+  probeHours: [...Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')), 'unknown'],
+  probeStatuses: ['2xx', '3xx', '401', '403', '404', '429', 'other4xx', '5xx', 'aborted', 'unknown'],
   classifications: ['likely_human', 'search_engine_crawler', 'ai_crawler', 'social_media_crawler', 'automated_api_client', 'suspected_scraper', 'suspected_security_scanner', 'unknown'],
   riskLevels: ['low', 'suspicious', 'high', 'unknown'],
   verificationStatuses: ['verified', 'unverified', 'verification_failed', 'verification_unavailable', 'not_applicable', 'unknown'],
@@ -17,4 +22,6 @@ const API_SCALARS = ['totalRequests', 'success', 'clientErrors', 'serverErrors',
 const API_DIMENSIONS = ['classifications', 'riskLevels', 'verificationStatuses', 'sourceChannels', 'countries', 'asns', 'identityConfidence', 'geoStatuses'];
 const WEBSITE_DIMENSIONS = ['pages', 'channels', 'campaignSources', 'campaignMediums', 'browsers', 'operatingSystems', 'countries', 'asns', 'identityConfidence', 'geoStatuses'];
 
-module.exports = { ENUMS, API_COUNTERS: API_SCALARS, API_DIMENSIONS, WEBSITE_DIMENSIONS };
+const PROBE_COUNTERS = ['observedRequests', 'matchedRequests', 'correlatedRequests', 'repeatRequests', 'multiCategoryRequests', 'success2xx'];
+const PROBE_DIMENSIONS = ['probeTargets', 'probeMethods', 'probeHours', 'probeStatuses', 'classifications', 'riskLevels', 'verificationStatuses', 'countries', 'asns', 'identityConfidence', 'geoStatuses'];
+module.exports = { ENUMS, API_COUNTERS: API_SCALARS, API_DIMENSIONS, WEBSITE_DIMENSIONS, PROBE_COUNTERS, PROBE_DIMENSIONS };

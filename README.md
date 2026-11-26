@@ -18,6 +18,8 @@ BoxMatch is a deployed full-stack surplus-food matching platform for exhibitions
 
 ## Architecture and trust boundaries
 
+See the [overall security architecture diagram / 整體資安架構](docs/SECURITY_ARCHITECTURE.md) for the complete enforcement, observation and administrator-access boundaries.
+
 ```mermaid
 flowchart LR
   Web[Flutter Web / mobile] --> Auth[Firebase Auth]
@@ -75,6 +77,8 @@ To enable Firebase mode in production:
 This project now uses a standalone Node API in `server/` (Render deploy) instead of Firebase Functions, so you can stay on Firebase Spark plan.
 
 [Request intelligence](docs/REQUEST_INTELLIGENCE.md) classifies API traffic and records risk signals without automatic blocking. [Traffic analytics](docs/TRAFFIC_ANALYTICS.md) provides bounded, best-effort daily aggregates with explicit missing-data status; it does not track unique visitors or reconstruct historical traffic. The [administrator dashboard](docs/TRAFFIC_DASHBOARD.md) uses a separate non-anonymous Firebase session and a verified `trafficAdmin` custom claim. It is not linked in public navigation.
+
+[Passive Security Probe Intelligence](docs/SECURITY_PROBE_INTELLIGENCE.md) optionally adds fixed sensitive-path categories, HTTP methods, UTC hours, response outcomes and short-lived trusted source correlation to the existing pipeline. It does not create decoys or change business responses; it is observation-only and defaults to disabled.
 
 All optional traffic features default to disabled in source; deployment configuration is operator-controlled. For activation, private credential setup, and reservation read rollout, use the [deployment runbook](docs/ops/deploy-runbook.md). Screenshots in the dashboard documentation use synthetic fixtures, not real traffic.
 
@@ -198,4 +202,4 @@ Collection tests auto-save `listingId`, `token`, `reservationId`, `pickupCode` f
 - [Architecture baseline](docs/ops/architecture-baseline.md)
 - [Deployment runbook](docs/ops/deploy-runbook.md)
 
-Feature development for the reviewed scope is complete; remaining work is operational verification and maintenance. No active crawler blocking, additional paid infrastructure, or production performance claims are part of this scope.
+The reviewed core development scope is complete; passive probe intelligence is a separately gated extension. Remaining work is operational verification and maintenance. No active crawler blocking, additional paid infrastructure, or production performance claims are part of this scope.

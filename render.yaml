@@ -27,6 +27,8 @@ services:
         value: "https://leo0331.github.io"
       - key: ENABLE_REQUEST_INTELLIGENCE
         value: "false"
+      - key: ENABLE_SECURITY_PROBES
+        value: "false"
       - key: ENABLE_BOT_VERIFICATION
         value: "false"
       - key: ENABLE_FRONTEND_TELEMETRY

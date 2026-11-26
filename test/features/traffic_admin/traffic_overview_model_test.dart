@@ -44,6 +44,32 @@ Map<String, dynamic> fixture() => {
 };
 
 void main() {
+  test('optional probe coverage preserves historical gaps and observed zero', () {
+    final data = fixture();
+    data['probes'] = {
+      'collectionEnabled': true,
+      'requestedDays': 7,
+      'observedDays': 1,
+      'invalidDays': 0,
+      'totals': {
+        'observedRequests': 3, 'matchedRequests': 0,
+        'correlatedRequests': 0, 'repeatRequests': 0,
+        'multiCategoryRequests': 0, 'success2xx': 0,
+      },
+      'dailyTrends': List.generate(7, (i) => {
+        'date': '2026-11-${20 + i}',
+        'status': i == 0 ? 'available' : 'not_observed',
+        'count': i == 0 ? 0 : null,
+      }),
+    };
+    final overview = TrafficOverview.fromJson(data);
+    expect(overview.probes!.counts, [0, null, null, null, null, null, null]);
+    expect(overview.probes!.totals!['matchedRequests'], 0);
+    data['probes']['observedDays'] = 7;
+    expect(TrafficOverview.fromJson(data).probes, isNull);
+    expect(TrafficOverview.fromJson(fixture()).probes, isNull);
+  });
+
   test('missing daily observations remain null instead of becoming zero', () {
     final overview = TrafficOverview.fromJson(fixture());
     expect(overview.period.timezone, 'UTC');

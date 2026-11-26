@@ -2,7 +2,7 @@ const { readConfig } = require('../observability/config');
 
 test('request intelligence and external verification default disabled', () => {
   expect(readConfig({})).toEqual({
-    enableRequestIntelligence: false, enableBotVerification: false, ipHmacSecret: null,
+    enableRequestIntelligence: false, enableSecurityProbes: false, enableBotVerification: false, ipHmacSecret: null,
     riskWindowMs: 60000, riskRateThreshold: 60, riskAuthFailureThreshold: 5,
     riskNotFoundThreshold: 10, intelligenceMaxEntries: 10000,
     botVerificationTimeoutMs: 2000, botVerificationCacheMaxEntries: 1000,

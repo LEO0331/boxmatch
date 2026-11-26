@@ -15,7 +15,8 @@ async function exportTrafficCsv(db, { days = 7, now = new Date() } = {}) {
       : { date: key, status: 'missing', data: null });
   }
   const csv = snapshotCsv({ days: records });
-  const rows = records.reduce((total, record) => total + (record.status === 'available' ? dailyRows(record.date, record.data).length : 1), 0);
+  // All exported fields are fixed-schema labels and numbers (no multiline cells).
+  const rows = csv.trimEnd().split('\n').length - 1;
   return { csv, startKey: keys[0], endKey: keys[keys.length - 1], rows };
 }
 

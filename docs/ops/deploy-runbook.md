@@ -26,6 +26,7 @@ Follow [dashboard setup](../TRAFFIC_DASHBOARD.md) and [analytics configuration](
 | Crawler verification (optional) | `ENABLE_BOT_VERIFICATION` | — |
 | Website visits | `ENABLE_FRONTEND_TELEMETRY` | `BOXMATCH_ENABLE_TELEMETRY` |
 | Daily aggregation | `ENABLE_TRAFFIC_AGGREGATION` | — |
+| Passive security probes (optional; also requires request intelligence and aggregation) | `ENABLE_SECURITY_PROBES` | — |
 | Administrator access | `ENABLE_TRAFFIC_ADMIN` | `BOXMATCH_ENABLE_TRAFFIC_ADMIN` |
 | Local country/ASN (optional) | `ENABLE_GEO_ENRICHMENT` | — |
 
@@ -54,3 +55,6 @@ Follow [reservation performance](reservation-loading-performance.md). After conf
 ## Ongoing checks
 
 Confirm aggregation coverage, actual proxy trust, memory and Firestore quotas, Render cold starts, authorization and map compatibility. No active crawler blocking is planned for the reviewed scope.
+
+
+For the optional probe module, see [activation, privacy limits and rollback](../SECURITY_PROBE_INTELLIGENCE.md). Keep the flag false until reviewed deployment and acceptance; the existing administrator UI automatically consumes optional probe data after both components are deployed.
