@@ -1783,8 +1783,8 @@ app.use((error, req, res, next) => {
 });
 
 async function startServer(port = Number(process.env.PORT || 8080)) {
-  const { migrateListingPrivacy } = require('../scripts/migrate_listing_privacy');
-  const migration = await migrateListingPrivacy(db, admin.firestore.FieldValue);
+  const { ensureListingPrivacyMigration } = require('../scripts/migrate_listing_privacy');
+  const migration = await ensureListingPrivacyMigration(db, admin.firestore.FieldValue);
   logEvent('info', 'listing.privacy.migration.completed', migration);
   const server = app.listen(port, () => {
     console.log(`boxmatch server listening on ${port}`);

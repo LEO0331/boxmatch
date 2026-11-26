@@ -30,6 +30,11 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Server-owned completion markers are never client accessible.
+    match /schema_migrations/{migrationId} {
+      allow read, write: if false;
+    }
+
     match /traffic_daily/{dayKey} {
       allow read, write: if false;
     }
