@@ -16,6 +16,12 @@ Updated 2026-11-26. Source defaults are not proof of live configuration.
 3. Verify Render health, Firebase settings and actual Pages deployment revision.
 4. Smoke test public map/listing, reserve/cancel/pickup, authenticated read and optional dashboard. Use a controlled test identity/listing; do not mutate real user records for a smoke test.
 
+## Runtime configuration ownership
+
+The seven optional traffic flags in `render.yaml` use `sync: false`: request intelligence, security probes, bot verification, frontend telemetry, GeoIP enrichment, traffic aggregation and administrator access. Render Dashboard → boxmatch-api → Environment is their source of truth. Existing Blueprint updates ignore these entries; initial Blueprint creation prompts for values. Missing variables still default to disabled in the application, and preview environments do not automatically receive these values. Required ID-token enforcement, CORS and business limits remain Blueprint-managed. See [Render Blueprint environment variables](https://render.com/docs/blueprint-spec#setting-environment-variables).
+
+If a previous Blueprint sync reset flags to false, merging this configuration does **not** restore their previous values. First confirm that the Blueprint synced the corrected revision (use Manual Sync if auto-sync is off), then restore the intended values in the service's Environment tab and Save and deploy. Verify the live revision, health and authorized overview; check the configured flag booleans in Data quality. Confirm the values survive a subsequent Blueprint sync. Do not disclose credentials or enable optional GeoIP without local databases. The deploy-hook workflow only requests a deployment; it does not verify runtime settings or deployment completion.
+
 ## Traffic dashboard
 
 Follow [dashboard setup](../TRAFFIC_DASHBOARD.md) and [analytics configuration](../TRAFFIC_ANALYTICS.md). Enable only the required backend flags and matching Pages variables:
