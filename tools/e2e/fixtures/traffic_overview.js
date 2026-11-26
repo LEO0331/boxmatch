@@ -68,4 +68,34 @@ function trafficOverview(days = 7) {
       issues: ['MISSING_DAYS', 'CURRENT_DAY_PARTIAL'] } };
 }
 
-module.exports = { trafficOverview };
+function probeOverview(days = 7) {
+  const overview = trafficOverview(days);
+  const trends = overview.dailyTrends.map((day, index) => ({
+    date: day.date,
+    status: day.available && index > 0 ? 'available' : 'not_observed',
+    count: day.available && index > 0 ? 3 : null
+  }));
+  const observedDays = trends.filter(day => day.status === 'available').length;
+  const matched = observedDays * 3;
+  return {
+    ...overview,
+    probes: {
+      collectionEnabled: true, requestedDays: days, observedDays, invalidDays: 0,
+      dailyTrends: trends,
+      totals: {
+        observedRequests: overview.api.totalRequests - overview.dailyTrends[0].apiRequests,
+        matchedRequests: matched, correlatedRequests: matched,
+        repeatRequests: observedDays * 2, multiCategoryRequests: observedDays,
+        success2xx: 0,
+        probeTargets: { environment: observedDays, git_metadata: observedDays, backup: observedDays },
+        probeMethods: { GET: observedDays * 2, HEAD: observedDays },
+        probeHours: { '08': matched }, probeStatuses: { '404': matched },
+        classifications: { suspected_security_scanner: matched },
+        riskLevels: { suspicious: matched }, verificationStatuses: { not_applicable: matched },
+        countries: { TW: matched }, asns: { '3462': matched },
+        identityConfidence: { trusted: matched }, geoStatuses: { resolved: matched }
+      }
+    }
+  };
+}
+module.exports = { trafficOverview, probeOverview };

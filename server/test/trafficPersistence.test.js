@@ -51,6 +51,24 @@ test('same immutable delta and marker ID prevent duplication after an ambiguous 
   expect(persistence.reservedWrites).toBe(4);
 });
 
+test('probe aggregate uses the same flush marker after an ambiguous successful commit', async () => {
+  const { aggregator, persistence, db } = fixture({ enableSecurityProbes: true, enableRequestIntelligence: true });
+  aggregator.recordApi({ ...event, status: 404, security: { probeCategory: 'environment' } });
+  const original = db.runTransaction.bind(db);
+  let first = true;
+  jest.spyOn(db, 'runTransaction').mockImplementation(async (...args) => {
+    const value = await original(...args);
+    if (first) { first = false; throw new Error('PRIVATE_AMBIGUOUS_COMMIT'); }
+    return value;
+  });
+  try {
+    expect(await persistence.flush()).toMatchObject({ replayed: 1, dropped: 0 });
+    expect(admin.__dump('traffic_daily')[0].data.probes.matchedRequests).toBe(1);
+    expect(admin.__dump('traffic_flushes')).toHaveLength(1);
+    expect(persistence.reservedWrites).toBe(4);
+  } finally { aggregator.close(); }
+});
+
 test('retries a rejected write with bounded exponential delays and recovers', async () => {
   const { aggregator, persistence, db, sleep, logEvent } = fixture();
   aggregator.recordApi(event);

@@ -73,6 +73,32 @@ describe('protected dashboard integration with existing observability', () => {
     expect(events().map((event) => event.event)).toContain('admin.traffic.export');
   });
 
+  test('probe totals and export remain protected by the existing admin boundary', async () => {
+    const { app, admin, __test } = loadApp({ ENABLE_SECURITY_PROBES: 'true' });
+    expect((await request(app).get('/.env?token=PRIVATE_PROBE')).status).toBe(404);
+    expect((await request(app).get('/.git/config')).status).toBe(404);
+    await __test.trafficAnalytics.flush({ force: true });
+    const stored = admin.__dump('traffic_daily')[0].data;
+    expect(stored.probes.matchedRequests).toBe(2);
+    for (const endpoint of ['overview', 'export']) {
+      expect((await request(app).get('/admin/traffic/' + endpoint)).status).toBe(401);
+      expect((await request(app).get('/admin/traffic/' + endpoint)
+        .set('Authorization', 'Bearer ordinary-fixture')).status).toBe(403);
+      expect((await request(app).get('/admin/traffic/' + endpoint)
+        .set('Authorization', 'Bearer anonymous-fixture')).status).toBe(403);
+    }
+    const overview = await request(app).get('/admin/traffic/overview?days=7')
+      .set('Authorization', 'Bearer admin-fixture');
+    expect(overview.status).toBe(200);
+    expect(overview.body.probes.totals.matchedRequests).toBe(2);
+    const csv = await request(app).get('/admin/traffic/export?days=7')
+      .set('Authorization', 'Bearer admin-fixture');
+    expect(csv.status).toBe(200);
+    expect(csv.text).toContain(',probes,totals,matchedRequests,2,available');
+    expect(JSON.stringify([overview.body, csv.text])).not.toMatch(/PRIVATE_|ipFingerprint|hmac:/);
+    await __test.trafficAnalytics.shutdown();
+  });
+
   test('only authorized normalized operations are excluded from API aggregates', async () => {
     const { app, admin, __test } = loadApp();
     expect((await request(app).get('/admin/traffic/overview?days=7')

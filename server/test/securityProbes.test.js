@@ -49,6 +49,8 @@ test('correlation is bounded, expires, and requires trusted HMAC', () => {
   for (const char of ['b', 'c', 'd']) tracker.observe({ ...network, ipFingerprint: 'hmac:' + char.repeat(64) }, 'backup');
   expect(tracker.size).toBe(2);
   expect(tracker.observe(network, 'environment').repeated).toBe(false);
+  tracker.close();
+  expect(tracker.size).toBe(0);
 });
 
 test('optional aggregate covers eligible requests, not just matches; keeps exact bounded dimensions', () => {
@@ -72,6 +74,7 @@ test('optional aggregate covers eligible requests, not just matches; keeps exact
   expect(merged.probes.matchedRequests).toBe(6);
   expect(mergeDailyData(snapshot, { ...snapshot, probes: undefined }, {}).probes.matchedRequests).toBe(3);
   expect(sanitizeDay(day, snapshot, now).data.probes.matchedRequests).toBe(3);
+  agg.close();
 });
 
 test('disabled aggregation remains compatible; enabled collection with no matches is observed zero', () => {
@@ -81,6 +84,8 @@ test('disabled aggregation remains compatible; enabled collection with no matche
   const enabled = createTrafficAggregator(config, { now: () => now });
   enabled.recordApi(event(null));
   expect(enabled.takePending()[0].probes).toMatchObject({ observedRequests: 1, matchedRequests: 0 });
+  disabled.close();
+  enabled.close();
 });
 
 test('dashboard and CSV distinguish missing, observed zero and invalid probe data without breaking API analytics', async () => {
@@ -99,4 +104,5 @@ test('dashboard and CSV distinguish missing, observed zero and invalid probe dat
   expect(csv).toContain('2026-11-24,probes,coverage,observation,,not_observed');
   expect(csv).toContain('2026-11-25,probes,coverage,observation,,invalid');
   expect(csv).toContain('2026-11-26,probes,totals,matchedRequests,0,available');
+  agg.close();
 });
