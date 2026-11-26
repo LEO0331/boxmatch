@@ -9,6 +9,7 @@ function readConfig(env = process.env) {
   const secretBytes = Buffer.byteLength(secret);
   return Object.freeze({
     enableRequestIntelligence: env.ENABLE_REQUEST_INTELLIGENCE === 'true',
+    enableSecurityProbes: env.ENABLE_SECURITY_PROBES === 'true',
     enableBotVerification: env.ENABLE_BOT_VERIFICATION === 'true',
     ipHmacSecret: secretBytes >= 32 && secretBytes <= 4096 ? secret : null,
     riskWindowMs: boundedInteger(env.REQUEST_RISK_WINDOW_MS, 60000, 1000, 300000),

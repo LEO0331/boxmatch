@@ -3,6 +3,7 @@ const { resolveNetworkIdentity } = require('./clientIp');
 const { classifyTraffic } = require('./trafficClassifier');
 const { classifySuspiciousPath, createRiskScorer } = require('./riskScorer');
 const { createBotVerifier } = require('./botVerifier');
+const { classifyProbe } = require('./probeClassifier');
 
 function headerValue(value, maxLength) {
   if (typeof value !== 'string' || value.length > maxLength || /[\x00-\x1f\x7f]/.test(value)) return '';
@@ -61,7 +62,10 @@ function createRequestIntelligence(config, dependencies = {}) {
     capture(req, options = {}) {
       const network = resolveNetwork(req, config.ipHmacSecret);
       const rawAgent = headerValue(req.headers?.['user-agent'], 1024);
-      const suspiciousPath = classifySuspiciousPath(req.originalUrl || req.url || '');
+      const path = req.originalUrl || req.url || '';
+      const probesEnabled = config.enableSecurityProbes === true && config.enableTrafficAggregation === true;
+      const probeCategory = probesEnabled ? classifyProbe(path) : null;
+      const suspiciousPath = Boolean(probeCategory) || classifySuspiciousPath(path);
       const client = classifyTraffic(rawAgent, { suspiciousPath });
       const source = extractSource(req);
       const preflight = req.method === 'OPTIONS' && Boolean(
@@ -96,7 +100,8 @@ function createRequestIntelligence(config, dependencies = {}) {
             type: client.type, browser: client.browser, os: client.os,
             claimedBot: client.claimedBot, purpose: client.botPurpose
           },
-          security: { classification: client.classification, verificationStatus, ...risk }
+          security: { classification: client.classification, verificationStatus, ...risk,
+            ...(probesEnabled && !preflight && !options.skipBehavior && !skipBehavior ? { probeCategory } : {}) }
         };
       };
     },

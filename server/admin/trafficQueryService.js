@@ -1,6 +1,6 @@
 const { dayRange } = require('../observability/trafficCsv');
-const { emptyDaily } = require('../observability/trafficAggregator');
-const { ENUMS, API_COUNTERS, API_DIMENSIONS, WEBSITE_DIMENSIONS } = require('../observability/trafficSchema');
+const { emptyDaily, emptyProbes } = require('../observability/trafficAggregator');
+const { ENUMS, API_COUNTERS, API_DIMENSIONS, WEBSITE_DIMENSIONS, PROBE_COUNTERS, PROBE_DIMENSIONS } = require('../observability/trafficSchema');
 const { isCountryCode } = require('../observability/geoResolver');
 
 const MAX_CACHE_BYTES = 16 * 1024 * 1024;
@@ -82,6 +82,21 @@ function sanitizeDay(date, raw, now) {
     output.website.pageViews = safeCount(raw.website?.pageViews);
     for (const name of API_DIMENSIONS) output.api[name] = dimension(name, raw.api?.[name], api.totalRequests);
     for (const name of WEBSITE_DIMENSIONS) output.website[name] = dimension(name, raw.website?.[name], output.website.pageViews);
+    if (Object.hasOwn(raw, 'probes')) {
+      try {
+        const probes = emptyProbes();
+        for (const name of PROBE_COUNTERS) probes[name] = safeCount(raw.probes?.[name]);
+        if (probes.observedRequests > api.totalRequests ||
+            probes.matchedRequests > probes.observedRequests ||
+            probes.correlatedRequests > probes.matchedRequests ||
+            probes.repeatRequests > probes.correlatedRequests ||
+            probes.multiCategoryRequests > probes.repeatRequests ||
+            probes.success2xx > probes.matchedRequests) throw new Error('INVALID_PROBE_COUNTERS');
+        for (const name of PROBE_DIMENSIONS) probes[name] = dimension(name, raw.probes?.[name], probes.matchedRequests);
+        if ((probes.probeStatuses['2xx'] || 0) !== probes.success2xx) throw new Error('INVALID_PROBE_STATUS');
+        output.probes = probes;
+      } catch (_) { output.probeInvalid = true; }
+    }
     output.updatedAt = updatedAt(raw.updatedAt, now);
     return { date, status: 'available', data: output };
   } catch (_) {
@@ -144,6 +159,27 @@ function buildSnapshot(period, records, config, now) {
   for (const [section, dimensions] of [[api, API_DIMENSIONS], [website, WEBSITE_DIMENSIONS]]) {
     for (const name of dimensions) section[name] = sortedDimension(section[name], ['countries', 'asns'].includes(name) ? 50 : null);
   }
+  let probes = emptyProbes();
+  let probeDays = 0;
+  let invalidProbeDays = 0;
+  const probeTrends = days.map(({ date, data }) => {
+    if (data?.probeInvalid) { invalidProbeDays++; return { date, status: 'invalid', count: null }; }
+    if (!data?.probes || !data.probes.observedRequests) return { date, status: 'not_observed', count: null };
+    try {
+      probes = mergeSection(probes, data.probes, PROBE_COUNTERS, PROBE_DIMENSIONS);
+      probeDays++;
+      return { date, status: 'available', count: data.probes.matchedRequests };
+    } catch (_) {
+      invalidProbeDays++;
+      return { date, status: 'invalid', count: null };
+    }
+  });
+  for (const name of PROBE_DIMENSIONS) probes[name] = sortedDimension(probes[name], ['countries', 'asns'].includes(name) ? 50 : null);
+  const probeOverview = config.enableSecurityProbes === true || probeDays || invalidProbeDays ? {
+    collectionEnabled: config.enableSecurityProbes === true && config.enableRequestIntelligence === true && config.enableTrafficAggregation === true,
+    observedDays: probeDays, invalidDays: invalidProbeDays, requestedDays: period.days,
+    totals: probeDays ? probes : null, dailyTrends: probeTrends
+  } : null;
   const errors = sum([api.clientErrors, api.serverErrors]);
   const knownCountry = (section) => sum(Object.entries(section.countries)
     .filter(([key]) => key !== 'unknown').map(([, value]) => value));
@@ -168,6 +204,7 @@ function buildSnapshot(period, records, config, now) {
         serverErrors: data?.api.serverErrors ?? null, aborted: data?.api.aborted ?? null,
         suspicious: data ? data.api.riskLevels.suspicious || 0 : null, highRisk: data ? data.api.riskLevels.high || 0 : null })),
       api, website,
+      ...(probeOverview ? { probes: probeOverview } : {}),
       network: { apiKnownCountryRate, websiteKnownCountryRate },
       dataQuality: {
         stale: lastPersistedAt ? now - Date.parse(lastPersistedAt) > threshold : null,

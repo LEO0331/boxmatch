@@ -1,4 +1,5 @@
-const { ENUMS, API_COUNTERS: API_SCALARS, API_DIMENSIONS, WEBSITE_DIMENSIONS } = require('./trafficSchema');
+const { ENUMS, API_COUNTERS: API_SCALARS, API_DIMENSIONS, WEBSITE_DIMENSIONS, PROBE_COUNTERS, PROBE_DIMENSIONS } = require('./trafficSchema');
+const { createProbeWindow, TARGETS } = require('./probeClassifier');
 
 function limit(value, fallback, maximum) {
   return Number.isSafeInteger(value) && value > 0 && value <= maximum ? value : fallback;
@@ -27,6 +28,24 @@ function emptyDaily(key) {
   const website = { pageViews: 0 };
   for (const name of WEBSITE_DIMENSIONS) website[name] = { unknown: 0, ...(name === 'countries' || name === 'asns' ? { other: 0 } : {}) };
   return { schemaVersion: 1, dayKey: key, api, website };
+}
+
+function emptyProbes() {
+  const data = Object.fromEntries(PROBE_COUNTERS.map((name) => [name, 0]));
+  for (const name of PROBE_DIMENSIONS) data[name] = { unknown: 0, ...(['countries', 'asns'].includes(name) ? { other: 0 } : {}) };
+  return data;
+}
+
+function probeStatus(event) {
+  if (event.aborted) return 'aborted';
+  const status = event.status;
+  if (!Number.isInteger(status)) return 'unknown';
+  if ([401, 403, 404, 429].includes(status)) return String(status);
+  if (status >= 200 && status < 300) return '2xx';
+  if (status >= 300 && status < 400) return '3xx';
+  if (status >= 400 && status < 500) return 'other4xx';
+  if (status >= 500 && status < 600) return '5xx';
+  return 'unknown';
 }
 
 function dimensionKey(name, value) {
@@ -72,6 +91,16 @@ function mergeDailyData(existing, delta, config = {}) {
       result[section][name] = mergeDimension(name, existing?.[section]?.[name], delta?.[section]?.[name], maximum);
     }
   }
+  // Additive optional section: old days/disabled collection remain unobserved.
+  // Merge even when collection is disabled so an existing probe section survives.
+  if (existing?.probes || delta?.probes) {
+    result.probes = emptyProbes();
+    for (const name of PROBE_COUNTERS) result.probes[name] = add(existing?.probes?.[name], delta?.probes?.[name]);
+    for (const name of PROBE_DIMENSIONS) {
+      const maximum = name === 'asns' ? limit(config.trafficMaxAsnBuckets, 100, 100) : name === 'countries' ? limit(config.trafficMaxCountryBuckets, 100, 250) : null;
+      result.probes[name] = mergeDimension(name, existing?.probes?.[name], delta?.probes?.[name], maximum);
+    }
+  }
   return result;
 }
 
@@ -79,6 +108,7 @@ function createTrafficAggregator(config = {}, { now = Date.now } = {}) {
   const enabled = config.enableTrafficAggregation === true;
   const maxDays = limit(config.trafficMaxPendingDays, 3, 7);
   const days = new Map();
+  const probeWindow = config.enableSecurityProbes === true ? createProbeWindow({ now }) : null;
   let droppedEvents = 0;
 
   function bucket(timestamp) {
@@ -136,6 +166,28 @@ function createTrafficAggregator(config = {}, { now = Date.now } = {}) {
       increment(entry, 'api', 'verificationStatuses', event.security?.verificationStatus);
       increment(entry, 'api', 'sourceChannels', event.source?.channel);
       networkDimensions(entry, 'api', event.network);
+      if (probeWindow && event.security && Object.hasOwn(event.security, 'probeCategory')) {
+        const category = event.security.probeCategory;
+        const probes = entry.data.probes ||= emptyProbes();
+        probes.observedRequests = add(probes.observedRequests, 1);
+        if (TARGETS.includes(category)) {
+          probes.matchedRequests = add(probes.matchedRequests, 1);
+          const observation = probeWindow.observe(event.network, category);
+          if (observation.correlated) probes.correlatedRequests = add(probes.correlatedRequests, 1);
+          if (observation.repeated) probes.repeatRequests = add(probes.repeatRequests, 1);
+          if (observation.multiCategory) probes.multiCategoryRequests = add(probes.multiCategoryRequests, 1);
+          const status = probeStatus(event);
+          if (status === '2xx') probes.success2xx = add(probes.success2xx, 1);
+          const method = ENUMS.probeMethods.includes(event.method) ? event.method : 'other';
+          const hour = String(new Date(event.ts ?? now()).getUTCHours()).padStart(2, '0');
+          for (const [name, value] of [['probeTargets', category], ['probeMethods', method],
+            ['probeHours', hour], ['probeStatuses', status], ['classifications', event.security.classification],
+            ['riskLevels', event.security.riskLevel], ['verificationStatuses', event.security.verificationStatus]]) {
+            increment(entry, 'probes', name, value);
+          }
+          networkDimensions(entry, 'probes', event.network);
+        }
+      }
       return true;
     },
     recordVisit(event = {}) {
@@ -176,4 +228,4 @@ function createTrafficAggregator(config = {}, { now = Date.now } = {}) {
   };
 }
 
-module.exports = { createTrafficAggregator, mergeDailyData, emptyDaily, validDay, ENUMS };
+module.exports = { createTrafficAggregator, mergeDailyData, emptyDaily, emptyProbes, validDay, ENUMS };

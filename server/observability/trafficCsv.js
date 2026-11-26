@@ -1,6 +1,6 @@
-const { ENUMS, API_COUNTERS, API_DIMENSIONS, WEBSITE_DIMENSIONS } = require('./trafficSchema');
+const { ENUMS, API_COUNTERS, API_DIMENSIONS, WEBSITE_DIMENSIONS, PROBE_COUNTERS, PROBE_DIMENSIONS } = require('./trafficSchema');
 const { isCountryCode } = require('./geoResolver');
-const DIMENSIONS = { api: API_DIMENSIONS, website: WEBSITE_DIMENSIONS };
+const DIMENSIONS = { api: API_DIMENSIONS, website: WEBSITE_DIMENSIONS, probes: PROBE_DIMENSIONS };
 
 function validateDays(value = 7) {
   if ((typeof value !== 'number' && (typeof value !== 'string' || !/^\d{1,2}$/.test(value))) ||
@@ -38,9 +38,9 @@ function isKnownKey(dimension, key) {
 
 function dailyRows(dayKey, data = {}) {
   const rows = [];
-  for (const stream of ['api', 'website']) {
+  for (const stream of ['api', 'website', ...(data.probes?.observedRequests ? ['probes'] : [])]) {
     const values = data?.[stream] || {};
-    for (const metric of stream === 'api' ? API_COUNTERS : ['pageViews']) {
+    for (const metric of stream === 'api' ? API_COUNTERS : stream === 'probes' ? PROBE_COUNTERS : ['pageViews']) {
       rows.push([dayKey, stream, 'totals', metric, counter(values[metric])]);
     }
     for (const dimension of DIMENSIONS[stream]) {
@@ -57,11 +57,15 @@ function dailyRows(dayKey, data = {}) {
 
 function snapshotCsv(snapshot) {
   const rows = [['dayKey', 'stream', 'dimension', 'key', 'count', 'status']];
+  const hasProbes = Boolean(snapshot.overview?.probes || snapshot.days.some(day => day.data?.probes || day.data?.probeInvalid));
   for (const day of snapshot.days) {
     if (day.status !== 'available' || !day.data) {
       rows.push([day.date, '', 'coverage', 'observation', '', day.status]);
     } else {
       for (const row of dailyRows(day.date, day.data)) rows.push([...row, 'available']);
+    }
+    if (hasProbes && !day.data?.probes?.observedRequests) {
+      rows.push([day.date, 'probes', 'coverage', 'observation', '', day.data?.probeInvalid ? 'invalid' : 'not_observed']);
     }
   }
   return `${rows.map((row) => row.map(safeCsvCell).join(',')).join('\n')}\n`;
