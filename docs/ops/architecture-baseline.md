@@ -1,33 +1,17 @@
-# Architecture Baseline (POC)
+# Architecture baseline
 
-## Objective
+Updated 2026-11-26. The deployed full-stack application is designed for low-cost operation with server-authoritative business mutations.
 
-Provide a low-cost, production-shaped architecture for Boxmatch while staying on free tiers where possible.
+| Layer | Current design |
+|---|---|
+| Client | Flutter Web/mobile, GitHub Pages, public listing/map and recipient workflows |
+| API | Node.js/Express on Render free tier, Firebase Admin SDK |
+| Data and identity | Firebase Spark, Cloud Firestore, anonymous recipient auth, dedicated administrator email/password auth |
+| Read boundary | Public catalog, owner-only reservations (opt-in direct query; authenticated API rollback) |
+| Write boundary | Server-only business mutations and private metadata; transactions and idempotency |
+| Observability | Structured request logs, optional crawler verification/risk/geography, daily aggregates and protected CSV dashboard |
+| Delivery | GitHub Actions backend, Flutter, Firestore emulator and browser regression checks |
 
-## Runtime Topology
+The versioned startup migration remains fail-closed. No active traffic blocking or new paid infrastructure is included. Direct database and static-only traffic bypass Express. Render free-tier cold starts and project-wide quotas remain operational constraints.
 
-- Client: Flutter (mobile + web)
-- API: Render free web service (`server/`)
-- Data/Auth: Firebase Spark (Firestore + Anonymous Auth)
-- CI/CD: GitHub Actions
-- Monitoring: Render logs + UptimeRobot free health checks
-
-## Write Authorization Boundary
-
-- All sensitive writes flow through API:
-  - enterprise create/update/rotate/revoke/confirm
-  - recipient reserve
-- Firestore security rules deny client writes for `listings` and `reservations`.
-
-## Core Collections
-
-- `venues`
-- `listings`
-- `reservations`
-- `abuse_signals`
-
-## Cost Principles
-
-- Avoid Firebase Functions (requires Blaze for this flow)
-- Keep single Render service in free tier
-- Keep analytics as lightweight Firestore aggregates/exports in POC phase
+See [system design](../system-design-review.en.md), [部署手冊](deploy-runbook.md), [final review](../TRAFFIC_FINAL_REVIEW.md), and [reservation performance](reservation-loading-performance.md).

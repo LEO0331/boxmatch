@@ -4,31 +4,47 @@
 [![Pages Deploy](https://github.com/LEO0331/boxmatch/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/LEO0331/boxmatch/actions/workflows/deploy-pages.yml)
 [![Backend CI](https://github.com/LEO0331/boxmatch/actions/workflows/backend-ci.yml/badge.svg)](https://github.com/LEO0331/boxmatch/actions/workflows/backend-ci.yml)
 
-Boxmatch is a lightweight surplus-food matching app for exhibitions.
-Enterprises can post leftover lunchboxes or drinks, and nearby users can reserve for pickup.
+BoxMatch is a deployed full-stack surplus-food matching platform for exhibitions. Enterprises publish available meals or drinks; recipients browse listings and a map, reserve pickup windows, and receive handoff codes.
 
-## MVP Highlights
+**Live application:** [BoxMatch](https://leo0331.github.io/boxmatch/) · [English system design](docs/system-design-review.en.md) · [繁體中文系統設計](docs/system-design-review.zh-TW.md)
 
-- Listing feed + map view (OpenStreetMap) for curated exhibition venues.
-- Enterprise posting flow with minimal public profile fields.
-- No-login enterprise edit flow using secure tokenized edit links.
-- Recipient reserve flow with disclaimer confirmation and 4-digit pickup code.
-- Spark-friendly expiry handling: realtime updates + 30-minute client reconciliation.
-- Donation-first model (`price = 0`) with schema ready for low-price offers later.
+## Capabilities
 
-## Data Model (Firestore)
+- Public listing feed and OpenStreetMap venue map; enterprise posting and revocable token-based editing.
+- Firebase-authenticated reservations, pickup confirmation, transactional inventory changes, and replay-safe reservation requests.
+- Owner-scoped reservation access, private credential metadata, server-derived identities, abuse budgets and server-authoritative writes.
+- Optional direct Firestore reservation reads, short-lived UID-scoped memory snapshots, progressive listing details and bounded retries.
+- Optional privacy-conscious request intelligence, crawler verification, behavioral risk signals, local country/ASN enrichment, daily aggregates and a protected administrator dashboard with CSV export.
 
-Collections used:
+## Architecture and trust boundaries
 
-- `venues`
-- `listings`
-- `reservations`
-- `abuse_signals`
-- `kpi_daily`
-- `kpi_summary`
-- `kpi_events` (optional, controlled by backend env)
+```mermaid
+flowchart LR
+  Web[Flutter Web / mobile] --> Auth[Firebase Auth]
+  Web -->|Public data; optional owner-only reservation query| DB[(Firestore)]
+  Web -->|Authenticated mutations / token-based enterprise actions| API[Node.js / Express on Render]
+  Admin[Dedicated administrator session] -->|Verified trafficAdmin claim| API
+  API -->|Admin SDK transactions| DB
+  API -->|Bounded daily aggregation| DB
+```
 
-See `firestore.rules` and `firestore.indexes.json` for starter Firebase config.
+The public client reads public listing/venue documents and, when explicitly enabled, queries only its authenticated user's reservations. The backend remains authoritative for every business mutation. The existing authenticated reservation-list API is retained as a deliberate rollback path. Direct Firestore reads avoid the Render cold start but are not counted in Express request logs.
+
+The backend and frontend are designed for a free-tier footprint (Render + Firebase Spark + GitHub Pages), not guaranteed always-on availability. Startup performs the privacy migration before opening the HTTP listener; after successful completion, a versioned server-only marker avoids repeating the full scan.
+
+## Data model (Firestore)
+
+| Purpose | Collections |
+|---|---|
+| Public catalog | `venues`, `listings` |
+| Owner-scoped reservations | `reservations` |
+| Private credentials and controls | `listing_private`, `security_budgets`, `abuse_signals`, `idempotency_keys` |
+| Enterprise verification and policy | `verified_enterprises`, `badge_rules` |
+| Business KPI reporting | `kpi_daily`, `kpi_summary`, optional `kpi_events` |
+| Operational traffic analytics | `traffic_daily`, `traffic_flushes` |
+| Schema migration completion | `schema_migrations` |
+
+See [Firestore rules](firestore.rules) and [indexes](firestore.indexes.json). Client writes to protected collections are denied. Demo-mode local data is separate from production data.
 
 ## Run
 
@@ -50,6 +66,7 @@ To enable Firebase mode in production:
 
 ## Security review
 
+- [Security review and finding status (2026-11-25)](docs/SECURITY_REVIEW_2026-11-25.md) — private listing metadata, server-derived enterprise identity, atomic budgets and transaction hardening.
 - [Security review and finding status (2026-11-19)](docs/SECURITY_REVIEW_2026-11-19.md) — verified recipient identity, logging, CORS, dependency checks, and remaining abuse-control risks.
 - Production recipient operations require Firebase ID tokens; the public web client uses Firebase anonymous authentication. Legacy UID-only requests are no longer accepted by the reviewed Render configuration.
 
@@ -57,18 +74,9 @@ To enable Firebase mode in production:
 
 This project now uses a standalone Node API in `server/` (Render deploy) instead of Firebase Functions, so you can stay on Firebase Spark plan.
 
-Optional [request intelligence](docs/REQUEST_INTELLIGENCE.md) enriches API logs with
-privacy-conscious traffic classification and behavioral risk signals. Phase 1 is
-observation-only and disabled by default; it cannot observe static GitHub Pages
-traffic or direct Firestore reads.
+[Request intelligence](docs/REQUEST_INTELLIGENCE.md) classifies API traffic and records risk signals without automatic blocking. [Traffic analytics](docs/TRAFFIC_ANALYTICS.md) provides bounded, best-effort daily aggregates with explicit missing-data status; it does not track unique visitors or reconstruct historical traffic. The [administrator dashboard](docs/TRAFFIC_DASHBOARD.md) uses a separate non-anonymous Firebase session and a verified `trafficAdmin` custom claim. It is not linked in public navigation.
 
-Optional [traffic analytics](docs/TRAFFIC_ANALYTICS.md) adds privacy-aware web page
-views, local country/ASN enrichment, and bounded daily operational aggregates.
-Phase 2 remains disabled by default and does not track unique visitors or sessions.
-
-The optional [traffic intelligence dashboard](docs/TRAFFIC_DASHBOARD.md) gives
-explicitly provisioned administrators a protected view of persisted daily metrics.
-Its UI and backend access are disabled by default and add no public navigation.
+All optional traffic features default to disabled in source; deployment configuration is operator-controlled. For activation, private credential setup, and reservation read rollout, use the [deployment runbook](docs/ops/deploy-runbook.md). Screenshots in the dashboard documentation use synthetic fixtures, not real traffic.
 
 Set your API URL when building/running Flutter:
 
@@ -115,7 +123,9 @@ npm ci
 npm run test:e2e:web
 ```
 
-This runs Playwright against `build/web` and checks core Flutter web routes for global runtime errors.
+This runs Playwright against `build/web` and checks core routes for global runtime errors. CI also exercises telemetry/admin-enabled and disabled builds, plus real Firestore emulator security rules against an isolated demo project. See [release checklist](docs/ops/release-checklist.md).
+
+Latest verified baseline (2026-11-26): [five CI checks passed](https://github.com/LEO0331/boxmatch/pull/57/checks), 546 backend tests across 31 suites, 89.32% Flutter coverage (80% gate), and zero vulnerabilities reported by the backend npm audit. These are dated CI results, not a claim about current production data or future dependencies.
 
 ### Coverage Gate Rule
 
@@ -136,6 +146,9 @@ To enforce merge blocking in GitHub:
 3. Add required checks:
    - `test-and-coverage` (from Flutter CI)
    - `Backend Tests (Jest)` (from Backend CI)
+   - `owner-reservation-rules` (from Firestore Rules CI)
+   - `browser (false)` and `browser (true)` (from Traffic Web CI, for applicable frontend changes)
+   - Account for path-filtered workflows when configuring required checks so documentation-only changes do not become permanently blocked.
 4. Keep `Require branches to be up to date before merging` enabled
 
 ## Release Smoke + Gate
@@ -178,4 +191,11 @@ Recommended run order in collection:
 
 Collection tests auto-save `listingId`, `token`, `reservationId`, `pickupCode` for downstream requests.
 
-See the [traffic intelligence final review and acceptance checklist](docs/TRAFFIC_FINAL_REVIEW.md) for deployment prerequisites and remaining operational limits.
+## Maintenance and operational references
+
+- [Final traffic review and acceptance](docs/TRAFFIC_FINAL_REVIEW.md)
+- [Reservation loading performance and rollback](docs/ops/reservation-loading-performance.md)
+- [Architecture baseline](docs/ops/architecture-baseline.md)
+- [Deployment runbook](docs/ops/deploy-runbook.md)
+
+Feature development for the reviewed scope is complete; remaining work is operational verification and maintenance. No active crawler blocking, additional paid infrastructure, or production performance claims are part of this scope.

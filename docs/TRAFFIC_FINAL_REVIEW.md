@@ -1,6 +1,6 @@
 # Traffic intelligence final remediation
 
-Scope: observation-only Phases 1–3. No active blocking, new infrastructure, production flag activation or live deployment changes.
+Scope: observation-only Phases 1–3. All eleven remediation findings were implemented and merged in [PR #56](https://github.com/LEO0331/boxmatch/pull/56). No active blocking or new infrastructure. Source defaults remain disabled; deployed activation is operator-controlled.
 
 | Finding | Remediation |
 |---|---|
@@ -19,3 +19,10 @@ Scope: observation-only Phases 1–3. No active blocking, new infrastructure, pr
 ## Acceptance
 
 Run backend npm ci/lint/test/audit, Flutter analyze/tests/coverage, both browser builds and their Playwright suites. Verify the actual Render root, proxy forwarding, Firebase project/provider and deployed rules, administrator provisioning/revocation, optional local licensed geography files, real data delivery and read/write/memory quotas in an approved environment. Confirm map tiles and existing reservation flows. Keep all feature switches off until explicitly enabled by the operator. Source changes and automated CI do not establish production readiness.
+
+
+## Verified baseline (2026-11-26)
+
+Following [reservation performance PR #57](https://github.com/LEO0331/boxmatch/pull/57), [all five checks passed](https://github.com/LEO0331/boxmatch/pull/57/checks): backend 546 tests across 31 suites, Flutter 89.32% coverage, real Firestore emulator security tests, and both browser builds. Backend npm audit reported zero vulnerabilities at that revision. The owner confirmed administrator dashboard access on 2026-11-26; aggregation, live rules, direct-read activation, geo/proxy and quotas have not been independently verified here.
+
+The reviewed development scope is complete; continue with [operational acceptance](ops/deploy-runbook.md) and maintenance rather than a new active-enforcement phase.

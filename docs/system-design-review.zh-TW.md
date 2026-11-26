@@ -1,207 +1,79 @@
-# Boxmatch 系統設計審查（繁中）
+# BoxMatch 系統設計審查（繁體中文）
 
-## 1) 範圍與目標
-- 產品目標：在展場情境中，快速媒合企業剩食（便當/飲料）給有需要的人，且交付點限定在公開區域。
-- MVP 約束：
-  - Firebase 維持 Spark 方案。
-  - 不依賴付費 Firebase Functions/排程。
-  - 企業端維持低摩擦（免登入、token 編輯連結）。
+更新日期：2026-11-26 · [English](system-design-review.en.md)
 
-## 2) 現行架構
-- Client：Flutter（Web + Mobile）
-- Backend API：Render 上的 Node.js + Express
-- Data/Auth：Firestore + Firebase Auth（匿名與 ID Token 相容遷移）
-- CI/CD：GitHub Actions + Render Deploy Hook + GitHub Pages
+## 1. 範圍與設計約束
 
-權限邊界：
-- 所有高權限寫入統一走後端（Admin SDK），不讓前端直寫：
-  - listing 建立/更新/rotate/revoke
-  - reservation 預約/取消/完成確認
-  - abuse signal 回報
-- Firestore rules 封鎖受保護集合的 client write。
+BoxMatch 為展場剩食媒合平台，整合公開餐食列表、地圖、企業發布、預約與取餐交接。採 Flutter、Node.js／Express、Firebase Authentication、Cloud Firestore，透過 GitHub Pages 與 Render 部署。設計目標是在免費層成本限制下保障交易一致性與營運可觀測性，並非承諾常駐服務 SLA 或大型分析倉儲。
 
-## 3) 資料模型與選型理由
+## 2. 現行架構與權限邊界
 
-### 3.1 主要集合
-- `venues`
-- `listings`
-- `reservations`
-- `abuse_signals`
-- `verified_enterprises`
-- `badge_rules`
-- `idempotency_keys`
-- `kpi_daily`, `kpi_summary`（可選 `kpi_events`）
+```mermaid
+flowchart LR
+  Client[Flutter 前端] --> Auth[Firebase 身分驗證]
+  Client -->|公開資料／可選擁有者查詢| DB[(Firestore)]
+  Client -->|業務異動／預約讀取回退| API[Express REST API]
+  Admin[獨立管理員工作階段] -->|驗證自訂權限| API
+  API -->|交易式寫入| DB
+  API -->|每日流量聚合| DB
+```
 
-### 3.2 為什麼這樣設計（與替代方案）
+| 路徑 | 權限與取捨 |
+|---|---|
+| 公開餐食與場館 | 直接讀取 Firestore；公開 listing 不存放私人憑證。 |
+| 我的預約 | 可選依 Firebase UID 限定擁有者的 Firestore 伺服器端資料查詢，避免 Render 冷啟動；預設／回退採已驗證 Express API。 |
+| 預約、取消、取餐確認與庫存 | 後端驗證身分或編輯權杖，檢查業務規則並以 Admin SDK transaction 寫入。 |
+| 企業發布與編輯 | 低摩擦的編輯權杖，雜湊存於 `listing_private`，支援輪替、撤銷與伺服器判定所有權；驗證企業須綁定已驗證的擁有者。 |
+| 流量管理儀表板 | 獨立 Firebase Auth 工作階段，後端驗證非匿名身分與 `trafficAdmin === true` 自訂權限，不開放前端直接讀取分析集合。 |
 
-1. `venues` 獨立集合（策展式場館資料）
-- 為何選這個：
-  - 場館資料穩定、可重用。
-  - 容易 seed、快取與 map/list 統一篩選。
-  - 避免 listing 自由輸入造成場館名稱漂移。
-- 替代：
-  - 每筆 listing 直接存 venue 文字。
-- 取捨：
-  - 文字直存一開始最簡單，但後續一致性與查詢能力差。
+## 3. 資料模型與選型
 
-2. `listings` 採頂層集合（非 nested 在 venue 底下）
-- 為何選這個：
-  - 全域 active feed（跨場館）查詢更直接。
-  - map/list 混合呈現與時間篩選更好做。
-  - `expiresAt`/`status` 索引策略清楚。
-- 替代：
-  - `/venues/{venueId}/listings/{listingId}` 子集合。
-- 取捨：
-  - 子集合在單場館維度有局部優勢，但跨場館查詢與分析成本較高。
+| 集合 | 用途 |
+|---|---|
+| `venues`、`listings` | 頂層集合利於場館共用與跨場館列表／地圖查詢。 |
+| `reservations` | 使用 `listingId` 與 `claimerUid`，支援企業及領取者查詢。 |
+| `listing_private` | 隔離編輯權杖雜湊、企業識別鍵與所有權。 |
+| `idempotency_keys` | 保存冪等重試紀錄，避免重複扣減庫存。 |
+| `security_budgets`、`abuse_signals` | 後端專用資源預算與濫用訊號，限制寫入規模。 |
+| `verified_enterprises`、`badge_rules` | 分離企業信任及徽章政策與前端輸入。 |
+| `kpi_daily`、`kpi_summary`、可選 `kpi_events` | 業務指標報表，與請求流量監控分離。 |
+| `traffic_daily`、`traffic_flushes` | 每日聚合及穩定批次標記，限制資源使用並防止不確定提交時重複計數。 |
+| `schema_migrations` | 後端專用版本化遷移完成標記，避免重複全量掃描。 |
 
-3. `reservations` 採頂層集合，帶 `listingId` + `claimerUid`
-- 為何選這個：
-  - 同時支援「企業看某 listing 的預約」與「使用者看我的預約」。
-  - recipient 每日上限/風控查詢更直接。
-- 替代：
-  - nested 在 listing 下。
-- 取捨：
-  - nested 直覺但 recipient 端我的預約會變多次查詢，擴充性較差。
+## 4. 安全性與交易一致性
 
-4. `idempotency_keys` 獨立集合
-- 為何選這個：
-  - 保證 reserve 重試不重複下單（弱網/超時常見）。
-  - 不需額外導入 Redis 仍可達到可接受的去重能力。
-- 替代：
-  - 只在 reservation 上存 request hash。
-  - 用 Redis/in-memory 去重。
-- 取捨：
-  - reservation 單點 hash 對跨失敗情境較脆弱；
-  - Redis 增加成本與運維，不適合 POC 免費期。
+Render 藍圖設定 `REQUIRE_ID_TOKEN=true`，領取者 UID 由後端驗證過的 Firebase ID Token 決定，不能由 request body 自行指定其他身分。舊 UID-only 模式只供明確設定的隔離開發環境使用。匿名登入降低使用者門檻，但本機 fallback ID 不具備 Firestore 預約存取權限。
 
-5. `verified_enterprises` 獨立集合
-- 為何選這個：
-  - 信任/審核生命週期與 listing 解耦。
-  - 方便人工審核、後續 admin 工具接入。
-- 替代：
-  - 在 listing 上直接放 `enterpriseVerified` 並由 client 帶入。
-- 取捨：
-  - 直接帶 flag 容易被濫用且治理困難。
+預約以 Firestore transaction 檢查並原子扣減庫存，重試沿用冪等鍵；取消、取餐確認、企業修改仍由後端驗證，保留庫存及憑證一致性。企業驗證徽章綁定已登錄擁有者而非別名。舊公開憑證遷移須在 HTTP listener 啟動前完成，失敗時停止啟動；強制重新掃描前先使舊完成標記失效。
 
-6. `badge_rules/default` 設定文件
-- 為何選這個：
-  - badge 門檻可後端調整，不需發新版 App。
-  - 統一 web/mobile 顯示邏輯，避免前端硬編碼漂移。
-- 替代：
-  - Flutter 前端硬編碼門檻。
-- 取捨：
-  - 短期省事，長期維運成本高、策略更新慢。
+Firestore Rules 禁止客戶端直接寫入受保護集合。預約讀取須限制 `claimerUid` 等於已驗證 UID，未授權、跨使用者及未限定查詢均遭拒；權限拒絕時不自動改走 API。管理員權限不授予直接讀取流量集合。含權杖路徑不送前端遙測，網頁使用僅傳 origin 的 `strict-origin` referrer policy，保留地圖相容性。
 
-7. `kpi_daily` + `kpi_summary` 聚合文件
-- 為何選這個：
-  - Spark 成本友善、實作輕量。
-  - 足夠支撐 POC KPI 追蹤與週報。
-- 替代：
-  - 一開始就上 BigQuery 事件倉儲。
-- 取捨：
-  - BigQuery 分析能力強，但 POC 階段成本與治理負擔較重。
+## 5. 效能與可靠性
 
-## 4) API 與安全設計取捨
+- 啟用直接預約讀取後，不需等待 Render 喚醒。使用依 UID 隔離的 30 秒記憶體快照，重新驗證資料，異動後失效，拒絕舊身分的延遲結果；重新確認期間禁止操作。
+- 預約與取餐碼優先呈現，餐食詳情獨立載入，每個 listing ID 去重，每批最多六個查詢，各有五秒期限。
+- 身分與預約載入設期限，移除整頁重試；API 回退路徑最多兩次請求。預約頁改為 eager loading，企業查詢維持退避策略。
+- 隱私遷移成功後，後續啟動僅需讀取版本化標記。首次仍需完成全量遷移；Render 免費層 API 呼叫仍可能有冷啟動。
 
-### 4.1 企業端免登入 token 模式
-- 現行：
-  - 編輯連結含 token；DB 只存 hash（`editTokenHash`）；提供 rotate/revoke。
-- 為何：
-  - 展場現場人員上手最快、摩擦最低。
-- 風險：
-  - 連結外流風險（分享/截圖/歷史紀錄）。
-- 緩解：
-  - hash 驗證、token 輪替與撤銷、結構化日誌、風險處理 SOP。
-- 替代：
-  - 企業完整帳號制（email/SSO/角色權限）。
-- 取捨：
-  - 安全性更強，但導入與運營複雜度顯著提高。
+詳見[預約效能與回退](ops/reservation-loading-performance.md)。目前無正式環境延遲量測，不宣稱改善百分比。
 
-### 4.2 recipient 身份模式（相容遷移）
-- 現行：
-  - 同時支援 `Authorization: Bearer <ID token>` 與舊 `claimerUid`。
-- 為何：
-  - 降低舊版客戶端切換風險。
-- 風險：
-  - legacy 模式抗偽造能力較弱。
-- 緩解：
-  - 可用 `REQUIRE_ID_TOKEN=true` 進入強制 token 模式。
-- 替代：
-  - 立即全面切 token-only。
-- 取捨：
-  - 安全升級快，但可能造成既有流程斷裂。
+## 6. 流量智慧分析與營運邊界
 
-### 4.3 後端權威寫入
-- 現行：
-  - 所有關鍵寫入由後端 Admin SDK 執行。
-- 為何：
-  - 可集中做驗證、交易性庫存扣減、風控與審計。
-- 替代：
-  - 前端直寫 + 複雜 rules。
-- 取捨：
-  - 前端直寫看似省後端，但規則複雜、可維護性與安全演進都差。
+Request Intelligence 為觀測用途：請求與爬蟲分類、可選爬蟲身分驗證、行為風險評分與可選本機國別／ASN 資料。結構化觀測日誌不含原始 IP；網路指紋需安全密鑰與可信代理設定。前端遙測為可選功能，不追蹤個人訪客或重建舊流量。
 
-## 5) 可靠性與效能取捨
-- 已採用：
-  - reserve idempotency key
-  - Firestore transaction 防超賣
-  - Flutter timeout + retry
-  - enterprise polling backoff
-  - app 啟動 health 預熱
-- 適配原因：
-  - 在免費層 cold start 與弱網條件下，以低成本提升成功率。
-- 已知限制：
-  - Render free 仍有冷啟動延遲。
-  - 尚未做 queue/worker 分離。
-- 替代：
-  - 付費常駐服務、訊息佇列、快取鎖。
-- 取捨：
-  - 可改善延遲與吞吐，但會提高固定成本與維運負擔。
+Traffic Analytics 採有限記憶體聚合、穩定批次標記、交易式持久化及讀寫預算。提交逾時時保留原 SDK 作業位置直到完成，避免不確定結果重複提交。管理端每日摘要與 CSV 經授權且禁止快取，缺失、無效或不支援資料與觀測值零明確區分。不加入自動爬蟲封鎖、Redis、佇列服務或付費基礎設施。
 
-## 6) 為何符合 Spark POC 策略
-- 避開 Firebase Functions Blaze 需求。
-- 保持系統簡潔、可測、可示範。
-- 保留擴充路徑：
-  - 可切 token-only，
-  - 可拆服務模組，
-  - 可把 KPI 轉倉儲分析，
-  - 可升級企業帳號制。
+限制：直接 Firestore 與純靜態流量不進入 Express；遙測屬 best-effort；單程序預算不等於專案配額；SDK 永久卡住可能需重啟。GeoIP 需正確代理設定與本機資料庫。儀表板不是即時請求監控、獨立訪客統計或稽核級帳本。
 
-## 7) Deep-Dive 問答準備
+## 7. 驗證與營運驗收
 
-### Q1：為什麼不直接用 Firebase Functions？
-- 目前核心是成本與方案限制；Render API 能維持 server-authoritative 同時不升級 Spark。
+2026-11-26 合併基準的[五項 CI 檢查均通過](https://github.com/LEO0331/boxmatch/pull/57/checks)：後端 31 suites／546 tests、Flutter 行覆蓋率 89.32%（門檻 80%）、實際 Firestore Emulator 擁有者讀取與禁止客戶端寫入驗證、兩種瀏覽器功能配置。當次後端 npm audit 回報零漏洞。CI 結果不等同正式環境規則、延遲或配額的驗證。
 
-### Q2：為什麼 reservation 不做 listing 子集合？
-- 「我的預約」與跨 listing 查詢在頂層集合更直接，成本與複雜度更低。
+剩餘營運確認：Render 實際根目錄、啟動命令、可信代理設定；Firebase 正式規則與管理員授權／撤銷；聚合及可選地理資料；預約讀取開關、冷熱啟動時間、原有地圖與取餐流程及資源使用。參考[部署手冊](ops/deploy-runbook.md)與[最終審查](TRAFFIC_FINAL_REVIEW.md)。
 
-### Q3：如何防止多人同時搶單造成超賣？
-- reserve 走 transaction 原子扣減 `quantityRemaining`，再加 idempotency 防重覆寫入。
+## 8. 工程設計討論
 
-### Q4：企業免登入怎麼建立信任？
-- 這是低摩擦信任模型：token proof + hash 驗證 + rotate/revoke + verified 集合 + 未驗證上限。
-- 若要更強身份保證，下一步是企業帳號與審核流程。
-
-### Q5：recipient 端如何控濫用？
-- 每 UID 每日上限、idempotency、abuse signal、moderation SOP。
-- 並已預留切換成強制 ID token 的路徑。
-
-### Q6：badge 規則為什麼放 Firestore？
-- PM/Ops 可即時調整門檻，不必等 App 發版；web/mobile 可同步一致。
-
-### Q7：目前最大的上線風險是什麼？
-- 免費後端冷啟動延遲。
-- 企業 token 連結外流。
-- 相容期若過長，legacy uid 風險會被放大。
-
-### Q8：正式擴張時怎麼升級最乾淨？
-- 先關閉 legacy（`REQUIRE_ID_TOKEN=true`）。
-- 導入 enterprise account + RBAC。
-- 加入快取/佇列與更完整 observability。
-- 視流量拆分 read/write 與事件管線。
-
-## 8) 審查簡報建議話術
-- 先講約束：「我們是 free-tier POC，但關鍵寫入仍走後端權威模型」。
-- 再講身份策略是「相容遷移」而非終態。
-- 逐一說明每個集合對應的查詢場景與治理價值。
-- 最後收斂到清楚升級路徑（auth、效能、營運三軸）。
+- 為何不讓前端直接異動庫存？集中身分驗證、交易一致性、冪等與業務規則。
+- 為何我的預約可直接讀取？擁有者查詢已通過 Emulator 規則測試，可移除冷啟動依賴而不改變寫入權威；代價為讀取不再進入 Express 觀測。
+- 為何版本化遷移？兼顧隱私 fail-closed 啟動及後續開機成本。
+- 為何使用每日聚合而非分析倉儲？符合現有成本、資源與資料最小化需求；依實測需求決定未來是否擴充。

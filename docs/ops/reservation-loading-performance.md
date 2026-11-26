@@ -21,3 +21,7 @@ The first startup without a valid marker still waits for the full idempotent pri
 The operator CLI `node scripts/migrate_listing_privacy.js` (from repository root with authorized Firebase Admin credentials and server dependencies installed) first invalidates the completion marker and then forces a scan. Stop legacy writers and the current backend before a legacy import or rollback, and complete the CLI migration before restarting the current backend. A failed forced scan leaves the marker incomplete. Do not manually fabricate a completion marker.
 
 Render free-tier wake-up time remains for mutation operations and protected analytics. This change does not alter plan, proxy settings, feature flags for traffic monitoring, or production Firebase configuration.
+
+## Verified baseline
+
+Merged in [PR #57](https://github.com/LEO0331/boxmatch/pull/57). On 2026-11-26 [all five checks passed](https://github.com/LEO0331/boxmatch/pull/57/checks), including the real owner-only Firestore emulator tests, backend 546 tests / 31 suites, Flutter 89.32% coverage and both browser configurations. Browser CI exercises the default API read path; direct-read behavior is covered by Dart tests and actual rules by the emulator. The live feature switch, deployed rules and measured latency remain operator verification items.

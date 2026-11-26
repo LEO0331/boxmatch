@@ -1,214 +1,79 @@
-# Boxmatch System Design Review (EN)
+# BoxMatch system design review (EN)
 
-## 1) Scope and Objectives
-- Product goal: match exhibition surplus food/drinks from enterprises to recipients quickly and safely in public pickup areas.
-- MVP constraints:
-  - Keep Firebase on Spark plan.
-  - Avoid paid Firebase Functions/Cloud Scheduler.
-  - Keep enterprise flow lightweight (token link, no enterprise login in MVP).
+Updated 2026-11-26 · [繁體中文](system-design-review.zh-TW.md)
 
-## 2) Current Architecture
-- Client: Flutter (Web + Mobile).
-- Backend API: Node.js + Express on Render.
-- Database/Auth: Firestore + Firebase Auth (Anonymous + ID token compatible flow).
-- CI/CD: GitHub Actions + Render deploy hook + GitHub Pages for web app.
+## 1. Scope and constraints
 
-Flow boundary:
-- Sensitive writes are backend-only (Admin SDK), not client Firestore writes:
-  - listing create/update/rotate/revoke
-  - reserve/cancel/confirm
-  - abuse signal submit
-- Firestore rules enforce read-mostly from clients and block direct writes for protected collections.
+BoxMatch coordinates surplus-food handoffs at exhibitions using public listings, maps, enterprise publishing and recipient reservations. The deployed architecture uses Flutter, Node.js/Express, Firebase Authentication and Firestore, with GitHub Pages and Render. The goal is safe business transactions and useful operational visibility within a free-tier footprint; this is not an always-on SLA or a commercial-scale analytics warehouse.
 
-## 3) Data Model and Why
+## 2. Runtime architecture
 
-### 3.1 Collections in use
-- `venues`
-- `listings`
-- `reservations`
-- `abuse_signals`
-- `verified_enterprises`
-- `badge_rules`
-- `idempotency_keys`
-- `kpi_daily`, `kpi_summary` (and optional `kpi_events`)
+```mermaid
+flowchart LR
+  Client[Flutter client] --> Auth[Firebase Authentication]
+  Client -->|Public catalog / optional owner query| Firestore[(Cloud Firestore)]
+  Client -->|Business mutations / authenticated read rollback| API[Express REST API]
+  Operator[Separate admin session] -->|Verified custom claim| API
+  API -->|Transactional writes| Firestore
+  API -->|Daily traffic aggregates| Firestore
+```
 
-### 3.2 Why these structures (and alternatives)
+| Path | Authority and trade-off |
+|---|---|
+| Public listings and venues | Direct Firestore reads; no private credentials in public listing documents. |
+| My Reservations | Optional owner-filtered, server-source Firestore query using authenticated UID; no Render dependency on reads. Default/rollback path is authenticated Express. |
+| Reserve, cancel, confirm and inventory | Express validates identity/capability and business rules, then uses Admin SDK transactions. |
+| Enterprise posting/edit | Low-friction edit capability with hashed secret stored in `listing_private`, rotation/revocation and server-derived ownership. Verified enterprise status requires authenticated owner identity. |
+| Traffic dashboard | Separate Firebase Auth session with verified non-anonymous `trafficAdmin === true` claim; protected server API, not client access to analytics collections. |
 
-1. `venues` as curated top-level collection
-- Why chosen:
-  - Stable reference data reused by many listings.
-  - Small, cache-friendly, easy to seed.
-  - Prevents typo drift for venue names.
-- Alternative:
-  - Embed venue text directly in each listing.
-- Tradeoff:
-  - Embedded text is simpler initially but causes data inconsistency and weak filtering/grouping later.
+## 3. Data model and design rationale
 
-2. `listings` top-level (not nested under venue)
-- Why chosen:
-  - Query by time/status globally is straightforward.
-  - Better for list/map combined feed and cross-venue operations.
-  - Simpler indexes for active feed (`expiresAt`, `status`).
-- Alternative:
-  - `/venues/{venueId}/listings/{listingId}` nested subcollection.
-- Tradeoff:
-  - Nested can improve locality per venue but makes cross-venue feed and some analytics queries heavier.
+| Collection | Design rationale |
+|---|---|
+| `venues`, `listings` | Top-level collections support shared venue reference data and cross-venue feed/map queries. |
+| `reservations` | Top-level documents with `listingId` and `claimerUid` enable both listing-centric and owner-centric access. |
+| `listing_private` | Isolates edit token hashes, enterprise key and ownership from public documents. |
+| `idempotency_keys` | Stable request replay records allow retry without duplicate inventory decrement. |
+| `security_budgets`, `abuse_signals` | Server-owned admission budgets and abuse evidence; transaction-based limits and bounded writes. |
+| `verified_enterprises`, `badge_rules` | Server-managed trust and badge policy separate from user-supplied data. |
+| `kpi_daily`, `kpi_summary`, optional `kpi_events` | Business reporting separate from traffic monitoring. |
+| `traffic_daily`, `traffic_flushes` | Daily aggregate schema and stable flush markers support bounded, duplicate-resistant persistence. |
+| `schema_migrations` | Server-only versioned migration completion marker; avoids repeated listing scans after successful migration. |
 
-3. `reservations` top-level with `listingId` + `claimerUid`
-- Why chosen:
-  - Supports both recipient-centric and listing-centric queries.
-  - Simplifies enterprise reservation management endpoint.
-  - Enables per-recipient limits and cancellation policies.
-- Alternative:
-  - Nested under listing (`/listings/{id}/reservations`).
-- Tradeoff:
-  - Nested is intuitive for listing scope, but recipient “my reservations” query becomes more expensive/multi-query.
+## 4. Security and transaction consistency
 
-4. `idempotency_keys` dedicated collection
-- Why chosen:
-  - Prevent duplicate reserve writes during retries/network instability.
-  - Keeps reserve endpoint replay-safe without requiring distributed cache.
-- Alternative:
-  - Keep last request hash on reservation doc only.
-  - Redis/memory cache dedupe.
-- Tradeoff:
-  - Doc-only hash is harder for robust dedupe across failure windows.
-  - Redis adds infra cost/ops overhead (not ideal for POC free tier).
+The reviewed production blueprint requires recipient Firebase ID tokens (`REQUIRE_ID_TOKEN=true`). The authoritative UID is derived from the verified token; body UID cannot override it. Legacy UID-only mode is reserved for explicitly configured isolated development. Firebase anonymous sign-in gives recipients an identity without a conventional account. A local fallback identity does not authorize Firestore reservation reads.
 
-5. `verified_enterprises` separate collection
-- Why chosen:
-  - Decouples trust/moderation lifecycle from listing documents.
-  - Allows manual/operational review workflows and future admin panel.
-- Alternative:
-  - Put `enterpriseVerified` static flag directly in listing input.
-- Tradeoff:
-  - Listing-only flag is easy to spoof/abuse and hard to govern.
+Reserve operations validate quantity and decrement available stock atomically. Repeated reserve attempts reuse an idempotency key; cancellation and pickup confirmation retain server-side authorization and transaction checks. Enterprise updates revalidate credentials and preserve allocated inventory. Verified badges bind to a registered owner rather than an alias. Private metadata is migrated before the HTTP listener opens; a failed migration or marker write blocks startup. A forced legacy-import rescan invalidates completion first.
 
-6. `badge_rules/default` configuration document
-- Why chosen:
-  - Server-calculated badges are adjustable without app redeploy.
-  - Keeps business thresholds out of client hardcode.
-- Alternative:
-  - Hardcode badge thresholds in Flutter app.
-- Tradeoff:
-  - Hardcoding is simpler short-term but causes version drift and slower policy changes.
+Firestore rules deny client writes to protected collections. Direct reservation queries must constrain `claimerUid` to the authenticated owner. Unauthorized/foreign/unfiltered queries fail; there is no permission-denial API fallback. Administrator credentials and custom claims do not grant direct traffic collection access. Token-bearing routes exclude frontend telemetry; the web referrer policy is origin-only `strict-origin` to preserve map compatibility.
 
-7. `kpi_daily` + `kpi_summary` aggregate docs
-- Why chosen:
-  - Cheap and simple KPI storage on Spark.
-  - Supports dashboard-style reporting without full analytics stack.
-- Alternative:
-  - BigQuery event warehouse first.
-- Tradeoff:
-  - BigQuery is more scalable for deep analytics, but too heavy for POC cost profile.
+## 5. Performance and reliability
 
-## 4) API and Security Tradeoffs
+- Optional direct reservation reads remove the Render wake-up dependency for list retrieval. The repository revalidates a 30-second UID-scoped in-memory snapshot, invalidates it after mutations and rejects stale identity results. Cached data is labeled refreshing and actions are unavailable until confirmed.
+- Reservation records and pickup codes render before optional listing details; unique listing IDs are fetched in batches of at most six with five-second deadlines.
+- Identity and list loading are bounded; nested page retries are removed. Rollback API list calls use at most two attempts. The reservation route loads eagerly; enterprise polling uses backoff.
+- Versioned privacy migration replaces the repeated startup scan with one marker lookup after success. A cold first startup still performs migration; Render free-tier cold starts remain for API calls.
 
-### 4.1 Enterprise no-login token model
-- Chosen:
-  - Edit URL includes token, server stores hash only (`editTokenHash`), supports rotate/revoke.
-- Why:
-  - Lowest friction for enterprise event staff.
-  - Works in Spark/free-tier constraints.
-- Risks:
-  - Token leak risk via URL sharing/history.
-- Mitigations:
-  - Token hash storage, rotation/revocation endpoints, logging taxonomy, moderation SOP.
-- Alternative:
-  - Full enterprise auth (email/password, SSO, invite roles).
-- Tradeoff:
-  - Stronger identity assurance but higher onboarding friction and product complexity.
+See [reservation performance](ops/reservation-loading-performance.md) for rollout, measurement and rollback.
 
-### 4.2 Recipient identity model (compatible migration)
-- Chosen:
-  - Support both Bearer Firebase ID token and legacy `claimerUid` during transition.
-- Why:
-  - Backward compatibility while migrating older clients.
-- Risk:
-  - Legacy mode weaker against spoofing.
-- Mitigation:
-  - `REQUIRE_ID_TOKEN` switch for hard enforcement when ready.
-- Alternative:
-  - Immediate token-only cutover.
-- Tradeoff:
-  - Better security now, but potential abrupt breakage for existing clients.
+## 6. Traffic intelligence and operational boundaries
 
-### 4.3 Server-side authoritative writes
-- Chosen:
-  - Firestore Admin SDK performs all high-privilege writes.
-- Why:
-  - Centralized validation, transactional inventory control, abuse controls.
-- Alternative:
-  - Let client write directly with complex rules.
-- Tradeoff:
-  - Client-direct can reduce backend cost, but rules become fragile and business logic is harder to evolve safely.
+Request Intelligence is observation-only: classify requests/crawlers, optionally verify crawler identity, score behavioral signals and enrich country/ASN using optional local databases. Raw IPs are not included in the structured observation logs; fingerprinting requires a secret and trusted network resolution. Frontend page views are opt-in and do not identify individual visitors or reconstruct prior traffic.
 
-## 5) Reliability and Performance Tradeoffs
-- Chosen reliability controls:
-  - reserve idempotency key
-  - transaction decrement for `quantityRemaining`
-  - client timeout/retry policy
-  - enterprise polling backoff
-  - app startup health warmup
-- Why:
-  - Handles free-tier cold starts + unstable network with minimal infra.
-- Known limitations:
-  - Render free cold starts can cause first-request latency.
-  - No queue/worker separation yet.
-- Alternatives:
-  - Paid always-on service, queue workers, Redis locks.
-- Tradeoff:
-  - Better latency/throughput but higher recurring cost and operational overhead.
+Traffic analytics uses bounded in-memory aggregation, stable batch markers, transactional persistence, write/read budgets and explicit coverage status. A timed-out SDK write retains its slot until settlement to avoid uncertain duplicate commits. The dashboard exposes bounded daily summaries and CSV through authorized no-store endpoints; unknown/missing/invalid data is not represented as observed zero. No automatic bot blocking, queue service, Redis or paid infrastructure is introduced.
 
-## 6) Why This Fits Spark-Plan POC
-- Avoids Firebase Functions Blaze requirement.
-- Keeps architecture simple and testable.
-- Preserves path to scale:
-  - can enforce token-only auth,
-  - can split API modules,
-  - can move analytics to warehouse later,
-  - can add enterprise account model when needed.
+Limitations: direct Firestore and static-only requests bypass Express; telemetry is best effort and publicly submitted; process-local budgets are not project-wide quotas; an indefinitely hung SDK operation can still require restart. GeoIP requires verified proxy topology and provisioned local data. The dashboard is not an audit-grade ledger, unique-visitor tracker or real-time request monitor.
 
-## 7) Deep-Dive Q&A Prep
+## 7. Verification and operational acceptance
 
-### Q1: Why not use Firebase Functions directly?
-- Current blocker is plan/cost constraints for deployment requirements.
-- Render API keeps server authority and works under Spark strategy.
+The merged baseline as of 2026-11-26 passed [all five PR checks](https://github.com/LEO0331/boxmatch/pull/57/checks): backend 546 tests / 31 suites, Flutter 89.32% line coverage (80% gate), actual Firestore emulator owner-only read/write-denial tests, and both browser configurations. The backend npm audit reported zero vulnerabilities at that revision. These results do not establish deployed rules, production latency or quota usage.
 
-### Q2: Why top-level `reservations` instead of subcollection under listing?
-- Recipient-centric listing of “my reservations” becomes much easier and cheaper.
-- Cross-listing moderation and rate-limit checks are also simpler.
+Remaining operator checks: confirm actual Render root and commands, proxy trust, Firebase rules, administrator provisioning/revocation, dashboard aggregation and optional geo data, reservation rollout and cold/warm timing, existing map/pickup flows, and resource consumption. See [deployment runbook](ops/deploy-runbook.md) and [final review](TRAFFIC_FINAL_REVIEW.md).
 
-### Q3: How do you prevent overbooking race conditions?
-- Reserve path uses Firestore transaction and checks `quantityRemaining` atomically.
-- Idempotency keys prevent duplicate decrements from retries.
+## 8. Engineering discussion
 
-### Q4: How is enterprise identity trusted without login?
-- It is a controlled low-friction trust model:
-  - token proof, hash verification, rotate/revoke, verification collection, posting limits.
-- For stronger identity, roadmap is enterprise auth + approval workflow.
-
-### Q5: How do you handle abuse at recipient side?
-- UID/day caps, idempotency controls, abuse reporting endpoint, moderation playbook.
-- Migration path to strict ID-token mode already prepared.
-
-### Q6: Why keep badge rules in Firestore?
-- Operational agility: PM/Ops can tune thresholds without Flutter release cycle.
-- Maintains consistency across web/mobile instantly via backend calculation.
-
-### Q7: What are the biggest production risks now?
-- Cold start latency on free backend.
-- Token-link leakage for enterprise if shared carelessly.
-- Legacy uid compatibility period if prolonged too long.
-
-### Q8: What is the clean scale-up path?
-- Phase out legacy uid (`REQUIRE_ID_TOKEN=true`).
-- Introduce enterprise account + role-based access.
-- Add managed caching/queue and observability stack.
-- Optionally split read/write services and add async event pipeline.
-
-## 8) Recommended Talking Track for Review
-- Start with constraints: “free-tier POC with server-authoritative safety.”
-- Explain identity strategy as phased migration, not final state.
-- Emphasize why each collection exists and what query pattern it unlocks.
-- Close with explicit upgrade path (auth hardening, performance hardening, ops hardening).
+- Why not client-direct mutations? Centralized identity, business validation, inventory consistency and idempotency remain easier to enforce in a transaction.
+- Why direct reads only for My Reservations? Owner-filtered security rules are emulator-tested; this removes a cold-start dependency without moving inventory authority to the client. The trade-off is reduced Express read observability.
+- Why versioned migration? Fail-closed initialization protects legacy privacy while avoiding repeated database work on later boots.
+- Why aggregate analytics rather than a warehouse? Bounded resource consumption and privacy minimization fit current scope. A paid service or more advanced enforcement should be justified by measured demand, not added speculatively.
