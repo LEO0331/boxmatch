@@ -25,17 +25,19 @@ services:
         value: "true"
       - key: CORS_ALLOWED_ORIGINS
         value: "https://leo0331.github.io"
+      # Optional runtime flags are operator-owned; missing values remain false in code.
+      # Existing Blueprint syncs must not reset manually configured values.
       - key: ENABLE_REQUEST_INTELLIGENCE
-        value: "false"
+        sync: false
       - key: ENABLE_SECURITY_PROBES
-        value: "false"
+        sync: false
       - key: ENABLE_BOT_VERIFICATION
-        value: "false"
+        sync: false
       - key: ENABLE_FRONTEND_TELEMETRY
-        value: "false"
+        sync: false
       - key: ENABLE_GEO_ENRICHMENT
-        value: "false"
+        sync: false
       - key: ENABLE_TRAFFIC_AGGREGATION
-        value: "false"
+        sync: false
       - key: ENABLE_TRAFFIC_ADMIN
-        value: "false"
+        sync: false

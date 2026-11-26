@@ -67,7 +67,7 @@ of what the page currently displays.
 
 ## Enabling the interface
 
-Render configuration includes `ENABLE_TRAFFIC_ADMIN=false`. After reviewing a
+The application defaults `ENABLE_TRAFFIC_ADMIN` to false when unset. The Render Blueprint uses `sync: false` for optional runtime flags; set them in the service's Environment tab (see [configuration ownership](ops/deploy-runbook.md#runtime-configuration-ownership)). After reviewing a
 non-production setup, an operator may enable it without enabling current traffic
 collection. Existing CORS allowed origins still apply.
 

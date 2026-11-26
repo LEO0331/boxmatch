@@ -23,7 +23,7 @@ No raw IP, URL, request body, raw User-Agent, cookies, authorization headers or 
 
 ## Activation / 啟用
 
-Source defaults remain false. Configure Render with exact string values:
+Source defaults remain false. The optional flags are operator-owned (`sync: false` in the Blueprint), so set or restore values in the Render service's Environment tab after the corrected Blueprint has synced. See [runtime configuration ownership](ops/deploy-runbook.md#runtime-configuration-ownership). Configure Render with exact string values:
 - `ENABLE_REQUEST_INTELLIGENCE=true`
 - `ENABLE_TRAFFIC_AGGREGATION=true`
 - `ENABLE_SECURITY_PROBES=true` (new; defaults false)
