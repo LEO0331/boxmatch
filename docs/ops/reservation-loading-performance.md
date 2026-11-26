@@ -18,6 +18,6 @@ The repository holds one authenticated recipient's most recent list in memory fo
 
 The first startup without a valid marker still waits for the full idempotent privacy migration. Only successful completion writes `schema_migrations/listing_privacy_v1`. Subsequent starts read one marker rather than scanning every listing; no client may read or change the marker. Concurrent first starts can repeat the safe scan. A failed scan or failed marker write blocks startup; the next startup retries. Existing migrated data is not altered by the marker itself.
 
-The operator CLI `node scripts/migrate_listing_privacy.js` (from repository root with authorized Firebase Admin credentials and server dependencies installed) always forces a scan. After a legacy import or rollback to an old writer, rerun this CLI before restarting the current backend. Do not manually fabricate a completion marker.
+The operator CLI `node scripts/migrate_listing_privacy.js` (from repository root with authorized Firebase Admin credentials and server dependencies installed) first invalidates the completion marker and then forces a scan. Stop legacy writers and the current backend before a legacy import or rollback, and complete the CLI migration before restarting the current backend. A failed forced scan leaves the marker incomplete. Do not manually fabricate a completion marker.
 
 Render free-tier wake-up time remains for mutation operations and protected analytics. This change does not alter plan, proxy settings, feature flags for traffic monitoring, or production Firebase configuration.

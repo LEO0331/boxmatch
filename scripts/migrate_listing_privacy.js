@@ -73,7 +73,11 @@ async function migrateListingPrivacy(db, FieldValue) {
 const PRIVACY_MIGRATION_VERSION = 1;
 async function ensureListingPrivacyMigration(db, FieldValue, { force = false } = {}) {
   const marker = db.collection('schema_migrations').doc('listing_privacy_v1');
-  if (!force) {
+  if (force) {
+    // Invalidate completion before a forced legacy import/rollback rescan.
+    // Otherwise a failed rescan could leave a previously completed marker.
+    await marker.set({ version: PRIVACY_MIGRATION_VERSION, completed: false });
+  } else {
     const snapshot = await marker.get();
     const data = snapshot.data();
     if (snapshot.exists && data?.version === PRIVACY_MIGRATION_VERSION && data.completed === true) {

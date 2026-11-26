@@ -73,8 +73,11 @@ class FirestoreSurplusRepository
   List<Reservation>? cachedRecipientReservations(String claimerUid) {
     _syncRecipientOwner();
     final at = _snapshotAt;
-    if (currentRecipientUid == null || currentRecipientUid != claimerUid ||
-        at == null || DateTime.now().difference(at) > _recipientCacheTtl) {
+    if (at != null && DateTime.now().difference(at) > _recipientCacheTtl) {
+      _recipientSnapshot = null;
+      _snapshotAt = null;
+    }
+    if (currentRecipientUid == null || currentRecipientUid != claimerUid) {
       return null;
     }
     return _recipientSnapshot;

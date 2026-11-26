@@ -29,6 +29,7 @@ class _MyReservationsPageState extends State<MyReservationsPage> {
   final Map<String, Listing?> _listingDetails = {};
   RecipientReservationReadCache? _cache;
   StreamSubscription<String?>? _uidSubscription;
+  Future<void>? _hydration;
   String? _owner;
   bool _initialized = false, _loading = true, _loadError = false;
   bool _cancelling = false;
@@ -100,7 +101,14 @@ class _MyReservationsPageState extends State<MyReservationsPage> {
       });
       // Pickup codes and statuses are already available. Listing enrichment is
       // independent, deduplicated and bounded; slow/missing details cannot block.
-      unawaited(_hydrateListings(deps.repository, reservations, generation));
+      final previous = _hydration ?? Future<void>.value();
+      final hydration = previous.then((_) async {
+        if (_isCurrent(generation)) {
+          await _hydrateListings(deps.repository, reservations, generation);
+        }
+      });
+      _hydration = hydration;
+      unawaited(hydration);
     } catch (_) {
       if (!_isCurrent(generation)) return;
       setState(() {
@@ -145,7 +153,9 @@ class _MyReservationsPageState extends State<MyReservationsPage> {
     final s = AppStrings.of(context);
     final uid = _owner;
     if (uid == null || uid != reservation.claimerUid ||
-        (_cache != null && _cache!.currentRecipientUid != uid)) return;
+        (_cache != null && _cache!.currentRecipientUid != uid)) {
+      return;
+    }
     final generation = _generation;
     setState(() => _cancelling = true);
     try {
@@ -153,7 +163,7 @@ class _MyReservationsPageState extends State<MyReservationsPage> {
         reservationId: reservation.id,
         claimerUid: uid,
       );
-      if (!_isCurrent(generation)) return;
+      if (!mounted || generation != _generation) return;
       setState(() {
         _reservations = _reservations?.map((item) =>
           item.id == reservation.id
@@ -166,7 +176,7 @@ class _MyReservationsPageState extends State<MyReservationsPage> {
       );
       _refresh();
     } on SurplusException catch (error) {
-      if (!_isCurrent(generation)) return;
+      if (!mounted || generation != _generation) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(error.message)),
       );

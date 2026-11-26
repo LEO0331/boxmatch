@@ -98,3 +98,18 @@ describe('versioned startup privacy migration', () => {
     expect(admin.__dump('listings')[0].data).not.toHaveProperty('editTokenHash');
   });
 });
+
+test('failed forced rescan invalidates a previously complete marker and retries on startup', async () => {
+  admin.__reset();
+  const ensure = (options) => ensureListingPrivacyMigration(admin.firestore(), admin.firestore.FieldValue, options);
+  await ensure();
+  admin.__seed('listings', 'legacy-import', { editTokenHash: 'legacy-hash' });
+  const transaction = jest.spyOn(admin.firestore(), 'runTransaction').mockRejectedValueOnce(new Error('unavailable'));
+  try {
+    await expect(ensure({ force: true })).rejects.toThrow('unavailable');
+    expect(admin.__dump('schema_migrations')[0].data.completed).toBe(false);
+    expect(await ensure()).toMatchObject({ migrated: 1, skipped: false });
+  } finally {
+    transaction.mockRestore();
+  }
+});
