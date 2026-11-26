@@ -38,6 +38,12 @@ class TrafficDashboardPage extends StatelessWidget {
     final coverage = overview.coverage;
     final summary = overview.summary;
     final hasData = coverage.availableDays > 0;
+    final advertisedPeriods = overview.dataQuality['supportedPeriods'];
+    final periods = [7, 30, 90]
+        .where((value) => advertisedPeriods is! List || advertisedPeriods.contains(value))
+        .toList();
+    if (!periods.contains(days)) periods.add(days);
+    periods.sort();
     final persisted = coverage.lastPersistedAt?.toUtc().toIso8601String();
     return Scaffold(
       body: SafeArea(
@@ -89,13 +95,13 @@ class TrafficDashboardPage extends StatelessWidget {
                                 labelText: t('Date range (UTC)', '日期範圍（UTC）'),
                               ),
                               items: [
-                                for (final value in [7, 30, 90])
+                                for (final value in periods)
                                   DropdownMenuItem(
                                     value: value,
                                     child: Text(t('$value days', '$value 天')),
                                   ),
                               ],
-                              onChanged: loading
+                              onChanged: loading || exporting
                                   ? null
                                   : (value) {
                                       if (value != null) onDaysChanged(value);
@@ -104,7 +110,7 @@ class TrafficDashboardPage extends StatelessWidget {
                           ),
                           OutlinedButton(
                             key: const ValueKey('traffic-refresh'),
-                            onPressed: refreshAllowed && !loading
+                            onPressed: refreshAllowed && !loading && !exporting
                                 ? onRefresh
                                 : null,
                             child: Text(t('Refresh', '重新整理')),

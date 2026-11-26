@@ -208,7 +208,7 @@ class _TrafficAdminEntryState extends State<TrafficAdminEntry> {
   }
 
   void _refresh() {
-    if (!_refreshAllowed || _loading) return;
+    if (!_refreshAllowed || _loading || _exporting) return;
     setState(() => _refreshAllowed = false);
     _cooldown?.cancel();
     _cooldown = Timer(widget.refreshCooldown, () {
@@ -295,6 +295,7 @@ class _TrafficAdminEntryState extends State<TrafficAdminEntry> {
         fixtureLabel: widget.fixtureLabel,
         error: _error,
         onDaysChanged: (value) {
+          if (_exporting || _loading) return;
           setState(() {
             _days = value;
             _overview = null;

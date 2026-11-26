@@ -1,10 +1,8 @@
-const { dayRange } = require('../../scripts/export_traffic_csv');
-const { ENUMS, emptyDaily } = require('../observability/trafficAggregator');
+const { dayRange } = require('../observability/trafficCsv');
+const { emptyDaily } = require('../observability/trafficAggregator');
+const { ENUMS, API_COUNTERS, API_DIMENSIONS, WEBSITE_DIMENSIONS } = require('../observability/trafficSchema');
 const { isCountryCode } = require('../observability/geoResolver');
 
-const API_COUNTERS = ['totalRequests', 'success', 'clientErrors', 'serverErrors', 'aborted', 'rateLimited'];
-const API_DIMENSIONS = ['classifications', 'riskLevels', 'verificationStatuses', 'sourceChannels', 'countries', 'asns', 'identityConfidence', 'geoStatuses'];
-const WEBSITE_DIMENSIONS = ['pages', 'channels', 'campaignSources', 'campaignMediums', 'browsers', 'operatingSystems', 'countries', 'asns', 'identityConfidence', 'geoStatuses'];
 const MAX_CACHE_BYTES = 16 * 1024 * 1024;
 
 function failure(status, code) {
@@ -174,6 +172,7 @@ function buildSnapshot(period, records, config, now) {
       dataQuality: {
         stale: lastPersistedAt ? now - Date.parse(lastPersistedAt) > threshold : null,
         currentDayPartial: true,
+        supportedPeriods: [7, 30, 90].filter((days) => days <= bounded(config.trafficAdminMaxQueryDays, 90, 1, 90)),
         flags: { requestIntelligence: config.enableRequestIntelligence === true,
           botVerification: config.enableBotVerification === true, trafficAdmin: config.enableTrafficAdmin === true,
           frontendTelemetry: config.enableFrontendTelemetry === true,

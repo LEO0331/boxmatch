@@ -193,3 +193,25 @@ test('disabled persistence performs no database work or timer scheduling', async
   expect(aggregator.takePending).not.toHaveBeenCalled();
   expect(jest.getTimerCount()).toBe(0);
 });
+
+test('flush deadline is observable, retains the in-flight slot and recovers after settlement', async () => {
+  jest.useFakeTimers();
+  const { aggregator, persistence, db, logEvent, advance } = fixture({ trafficFlushTimeoutMs: 1000 });
+  aggregator.recordApi(event);
+  const original = db.runTransaction.bind(db);
+  let settle;
+  const transaction = jest.spyOn(db, 'runTransaction').mockImplementationOnce(() => new Promise((resolve) => { settle = resolve; }));
+  const running = persistence.flush();
+  await jest.advanceTimersByTimeAsync(1001);
+  expect(await running).toEqual({ timedOut: true });
+  expect(persistence.flush({ force: true })).toBe(running);
+  expect(transaction).toHaveBeenCalledTimes(1);
+  expect(logEvent).toHaveBeenCalledWith('warn', 'traffic.flush.timeout', { code: 'TRAFFIC_FLUSH_DEADLINE_REACHED' });
+  settle('written');
+  await jest.advanceTimersByTimeAsync(0);
+  transaction.mockImplementation(original);
+  advance(300000);
+  aggregator.recordApi(event);
+  expect(await persistence.flush()).toMatchObject({ written: 1 });
+  expect(transaction).toHaveBeenCalledTimes(2);
+});

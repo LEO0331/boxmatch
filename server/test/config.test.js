@@ -8,7 +8,7 @@ test('request intelligence and external verification default disabled', () => {
     botVerificationTimeoutMs: 2000, botVerificationCacheMaxEntries: 1000,
     botVerificationCacheTtlMs: 3600000,
     enableFrontendTelemetry: false, enableGeoEnrichment: false, enableTrafficAggregation: false,
-    trafficFlushIntervalMs: 300000, trafficRetentionDays: 90, trafficMaxPendingDays: 3,
+    trafficFlushIntervalMs: 300000, trafficFlushTimeoutMs: 30000, trafficRetentionDays: 90, trafficMaxPendingDays: 3,
     trafficMaxAsnBuckets: 100, trafficMaxCountryBuckets: 100, trafficWriteBudgetPerDay: 600,
     telemetryMaxBodyBytes: 2048, telemetryRateLimitPerMinute: 20, telemetryGlobalRateLimitPerMinute: 300,
     geoCountryDbPath: null, geoAsnDbPath: null, geoCacheMaxEntries: 2000, geoCacheTtlMs: 3600000,
@@ -97,4 +97,9 @@ test('administrator features default off and resource limits remain bounded', ()
   for (const invalid of ['0', '-1', 'NaN', '1.5', '1e9']) {
     expect(readConfig(Object.fromEntries(Object.keys(limits).map((key) => [key, invalid])))).toEqual(readConfig({}));
   }
+});
+
+test('flush deadline and dashboard period floor are bounded', () => {
+  expect(readConfig({ TRAFFIC_FLUSH_TIMEOUT_MS: '1000', TRAFFIC_ADMIN_MAX_QUERY_DAYS: '3' })).toMatchObject({ trafficFlushTimeoutMs: 1000, trafficAdminMaxQueryDays: 7 });
+  expect(readConfig({ TRAFFIC_FLUSH_TIMEOUT_MS: '60001' }).trafficFlushTimeoutMs).toBe(30000);
 });

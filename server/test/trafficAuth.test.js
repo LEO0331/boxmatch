@@ -76,7 +76,7 @@ test('per-admin and global budgets expire and are separate', async () => {
   auth.verifyIdToken.mockResolvedValue({ ...administrator, uid: 'another-admin' });
   expect((await request(app).get('/').set('Authorization', 'Bearer three')).status).toBe(200);
   expect((await request(app).get('/').set('Authorization', 'Bearer four')).status).toBe(429);
-  expect(auth.verifyIdToken).toHaveBeenCalledTimes(3);
+  expect(auth.verifyIdToken).toHaveBeenCalledTimes(4);
   timestamp = 60000;
   expect((await request(app).get('/').set('Authorization', 'Bearer five')).status).toBe(200);
 });
@@ -100,4 +100,21 @@ test('broken security-log sinks cannot grant access or fail valid administrators
   const { app } = setup({}, { logEvent: () => { throw new Error('log unavailable'); } });
   expect((await request(app).get('/')).status).toBe(401);
   expect((await request(app).get('/').set('Authorization', 'Bearer token')).status).toBe(200);
+});
+
+test('missing or invalid credentials cannot consume authenticated operation allowance', async () => {
+  const { app, auth } = setup({ trafficAdminGlobalRateLimitPerMinute: 2 });
+  for (let i = 0; i < 5; i++) expect((await request(app).get('/')).status).toBe(401);
+  auth.verifyIdToken.mockRejectedValueOnce(Object.assign(new Error('invalid'), { code: 'auth/invalid-id-token' }));
+  expect((await request(app).get('/').set('Authorization', 'Bearer invalid')).status).toBe(401);
+  for (let i = 0; i < 2; i++) expect((await request(app).get('/').set('Authorization', 'Bearer valid')).status).toBe(200);
+  expect((await request(app).get('/').set('Authorization', 'Bearer valid')).body.code).toBe('TRAFFIC_ADMIN_GLOBAL_LIMIT');
+});
+
+test('untrusted bearer verification work has its own bounded admission window', async () => {
+  const { app, auth } = setup({ trafficAdminGlobalRateLimitPerMinute: 1 });
+  auth.verifyIdToken.mockRejectedValue(Object.assign(new Error('invalid'), { code: 'auth/invalid-id-token' }));
+  for (let i = 0; i < 10; i++) expect((await request(app).get('/').set('Authorization', 'Bearer invalid')).status).toBe(401);
+  expect((await request(app).get('/').set('Authorization', 'Bearer invalid')).body.code).toBe('TRAFFIC_ADMIN_VERIFICATION_LIMIT');
+  expect(auth.verifyIdToken).toHaveBeenCalledTimes(10);
 });

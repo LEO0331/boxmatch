@@ -177,3 +177,5 @@ Recommended run order in collection:
 12. `Enterprise - Revoke token`
 
 Collection tests auto-save `listingId`, `token`, `reservationId`, `pickupCode` for downstream requests.
+
+See the [traffic intelligence final review and acceptance checklist](docs/TRAFFIC_FINAL_REVIEW.md) for deployment prerequisites and remaining operational limits.

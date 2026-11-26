@@ -1,0 +1,41 @@
+name: Traffic Web CI
+on:
+  pull_request:
+    paths:
+      - 'lib/**'
+      - 'web/**'
+      - 'test/**'
+      - 'tools/e2e/**'
+      - 'package*.json'
+      - 'pubspec.*'
+      - 'playwright.config.js'
+      - '.github/workflows/traffic-web-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser:
+    # Playwright 1.60.0 supports Ubuntu 24.04, not the current ubuntu-latest (26.04).
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        enabled: ['false', 'true']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: flutter pub get
+      - run: flutter build web --release --dart-define=BOXMATCH_ENABLE_TELEMETRY=${{ matrix.enabled }} --dart-define=BOXMATCH_ENABLE_TRAFFIC_ADMIN=${{ matrix.enabled }}
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e:web
+        env:
+          BOXMATCH_E2E_TELEMETRY_ENABLED: ${{ matrix.enabled }}
+          BOXMATCH_E2E_TRAFFIC_ADMIN_ENABLED: ${{ matrix.enabled }}

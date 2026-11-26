@@ -248,3 +248,7 @@ prove a specific bot's purpose. Headers and attribution remain spoofable.
 Later phases may evaluate aggregate metrics, dashboards, broader provider support,
 and independently reviewed enforcement. Frontend tracking, hardware fingerprinting,
 geolocation/ASN enrichment, CAPTCHA, and blocking are outside Phase 1.
+
+## Administrative analytics integration
+
+Authorized, normalized dashboard operations are excluded from behavioral counters and ordinary API aggregates; denied and malformed probes remain observable. The web application uses `strict-origin` for map tile compatibility, suppressing referrer paths and queries.

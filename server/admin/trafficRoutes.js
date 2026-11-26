@@ -1,19 +1,7 @@
 const express = require('express');
 const { createTrafficAuth } = require('./trafficAuth');
-const { safeCsvCell, dailyRows } = require('../../scripts/export_traffic_csv');
+const { snapshotCsv } = require('../observability/trafficCsv');
 const MAX_EXPORT_BYTES = 8 * 1024 * 1024;
-
-function snapshotCsv(snapshot) {
-  const rows = [['dayKey', 'stream', 'dimension', 'key', 'count', 'status']];
-  for (const day of snapshot.days) {
-    if (day.status !== 'available' || !day.data) {
-      rows.push([day.date, '', 'coverage', 'observation', '', day.status]);
-    } else {
-      for (const row of dailyRows(day.date, day.data)) rows.push([...row, 'available']);
-    }
-  }
-  return `${rows.map((row) => row.map(safeCsvCell).join(',')).join('\n')}\n`;
-}
 
 function createTrafficRoutes(config = {}, { auth, queryService, logEvent = () => {}, now } = {}) {
   const router = express.Router();

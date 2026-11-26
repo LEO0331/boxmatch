@@ -5,11 +5,19 @@ on:
     branches: [main]
     paths:
       - "server/**"
+      - "scripts/**"
+      - "firestore.rules"
+      - "firestore.indexes.json"
+      - "render.yaml"
       - ".github/workflows/backend-ci.yml"
   push:
     branches: [main]
     paths:
       - "server/**"
+      - "scripts/**"
+      - "firestore.rules"
+      - "firestore.indexes.json"
+      - "render.yaml"
       - ".github/workflows/backend-ci.yml"
   workflow_dispatch:
 
