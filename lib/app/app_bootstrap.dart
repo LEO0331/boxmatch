@@ -13,6 +13,7 @@ import '../core/identity/firebase_recipient_identity_service.dart';
 import '../core/identity/local_recipient_identity_service.dart';
 import '../core/preferences/app_locale_controller.dart';
 import '../core/preferences/venue_favorites_store.dart';
+import '../core/telemetry/visit_tracker.dart';
 import '../features/surplus/data/firestore_surplus_repository.dart';
 import '../features/surplus/data/in_memory_surplus_repository.dart';
 import '../firebase_options.dart';
@@ -60,6 +61,10 @@ Future<AppDependencies> bootstrapApp() async {
       usingFirebase: true,
       localeController: localeController,
       favoritesStore: favoritesStore,
+      visitTracker: createVisitTracker(
+        apiBaseUrl: apiBaseUrl,
+        usingFirebase: true,
+      ),
     );
   } catch (error, stackTrace) {
     final line = jsonEncode({

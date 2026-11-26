@@ -71,3 +71,9 @@ test-results/
 playwright-report/
 integration_test/test_bundle.dart
 .omx
+
+# Operator-provisioned geographic datasets are licensed separately.
+*.mmdb
+*.mmdb.gz
+/reports/
+/server/reports/

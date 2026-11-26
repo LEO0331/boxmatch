@@ -6,7 +6,12 @@ test('request intelligence and external verification default disabled', () => {
     riskWindowMs: 60000, riskRateThreshold: 60, riskAuthFailureThreshold: 5,
     riskNotFoundThreshold: 10, intelligenceMaxEntries: 10000,
     botVerificationTimeoutMs: 2000, botVerificationCacheMaxEntries: 1000,
-    botVerificationCacheTtlMs: 3600000
+    botVerificationCacheTtlMs: 3600000,
+    enableFrontendTelemetry: false, enableGeoEnrichment: false, enableTrafficAggregation: false,
+    trafficFlushIntervalMs: 300000, trafficRetentionDays: 90, trafficMaxPendingDays: 3,
+    trafficMaxAsnBuckets: 100, trafficMaxCountryBuckets: 100, trafficWriteBudgetPerDay: 600,
+    telemetryMaxBodyBytes: 2048, telemetryRateLimitPerMinute: 20, telemetryGlobalRateLimitPerMinute: 300,
+    geoCountryDbPath: null, geoAsnDbPath: null, geoCacheMaxEntries: 2000, geoCacheTtlMs: 3600000
   });
 });
 
@@ -46,4 +51,30 @@ test('numeric configuration respects configured values and upper bounds', () => 
   expect(readConfig({ REQUEST_RISK_WINDOW_MS: '300001', REQUEST_INTELLIGENCE_MAX_ENTRIES: '10001',
     BOT_VERIFICATION_TIMEOUT_MS: '10001', REQUEST_RISK_RATE_THRESHOLD: '1001' })).toMatchObject({ riskWindowMs: 60000,
     intelligenceMaxEntries: 10000, botVerificationTimeoutMs: 2000, riskRateThreshold: 60 });
+});
+
+test('Phase 2 flags are independently opt-in and local database paths cannot be URLs', () => {
+  const flags = ['ENABLE_FRONTEND_TELEMETRY', 'ENABLE_GEO_ENRICHMENT', 'ENABLE_TRAFFIC_AGGREGATION'];
+  for (const flag of flags) {
+    expect(Object.values(readConfig({ [flag]: 'TRUE' })).filter((value) => value === true)).toHaveLength(0);
+    expect(Object.values(readConfig({ [flag]: 'true' })).filter((value) => value === true)).toHaveLength(1);
+  }
+  for (const path of ['https://attacker.example/db.mmdb', 'bad\0path', '', 'x'.repeat(4097)]) {
+    expect(readConfig({ GEO_COUNTRY_DB_PATH: path, GEO_ASN_DB_PATH: path }))
+      .toMatchObject({ geoCountryDbPath: null, geoAsnDbPath: null });
+  }
+  expect(readConfig({ GEO_COUNTRY_DB_PATH: '/private/country.mmdb' }).geoCountryDbPath).toBe('/private/country.mmdb');
+});
+
+test('Phase 2 resource configuration rejects invalid or excessive limits', () => {
+  const names = ['TRAFFIC_FLUSH_INTERVAL_MS', 'TRAFFIC_RETENTION_DAYS', 'TRAFFIC_MAX_PENDING_DAYS',
+    'TRAFFIC_MAX_ASN_BUCKETS', 'TRAFFIC_MAX_COUNTRY_BUCKETS', 'TRAFFIC_WRITE_BUDGET_PER_DAY',
+    'TELEMETRY_MAX_BODY_BYTES', 'TELEMETRY_RATE_LIMIT_PER_MINUTE', 'TELEMETRY_GLOBAL_RATE_LIMIT_PER_MINUTE',
+    'GEO_CACHE_MAX_ENTRIES', 'GEO_CACHE_TTL_MS'];
+  for (const value of ['0', '-1', '1e9', 'NaN', '999999999', '1.5']) {
+    expect(readConfig(Object.fromEntries(names.map((name) => [name, value])))).toEqual(readConfig({}));
+  }
+  expect(readConfig({ TRAFFIC_FLUSH_INTERVAL_MS: '60000', TELEMETRY_MAX_BODY_BYTES: '2049',
+    TELEMETRY_GLOBAL_RATE_LIMIT_PER_MINUTE: '1001' }))
+    .toMatchObject({ trafficFlushIntervalMs: 60000, telemetryMaxBodyBytes: 2048, telemetryGlobalRateLimitPerMinute: 300 });
 });

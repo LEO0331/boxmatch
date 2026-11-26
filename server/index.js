@@ -4,6 +4,8 @@ const express = require('express');
 const admin = require('./firebaseAdmin');
 const { readConfig } = require('./observability/config');
 const { createRequestIntelligence } = require('./observability/requestContext');
+const { createTrafficAnalytics, isTelemetryTransport } = require('./observability/trafficAnalytics');
+const { createTelemetryMiddleware } = require('./observability/telemetryEndpoint');
 
 if (!admin.apps.length) {
   const projectId = process.env.FIREBASE_PROJECT_ID;
@@ -242,9 +244,15 @@ function logServerError(event, req, error, extra = {}) {
 }
 
 const requestIntelligenceConfig = readConfig(process.env);
+let trafficAnalytics;
+try {
+  trafficAnalytics = createTrafficAnalytics(requestIntelligenceConfig, { db, logEvent });
+} catch (_) {
+  trafficAnalytics = { recordApi() {}, acceptVisit() {}, start() {}, shutdown: async () => {} };
+}
 let requestIntelligence;
 try {
-  requestIntelligence = createRequestIntelligence(requestIntelligenceConfig);
+  requestIntelligence = createRequestIntelligence(requestIntelligenceConfig, { geoResolver: trafficAnalytics.geoResolver });
 } catch (_) {
   // Optional telemetry cannot prevent the API from starting.
   requestIntelligence = { capture: () => null };
@@ -253,8 +261,12 @@ try {
 app.use((req, res, next) => {
   req.requestId = crypto.randomUUID();
   const startedAt = Date.now();
+  const telemetry = isTelemetryTransport(req);
   let enrich;
-  try { enrich = requestIntelligence.capture(req); } catch (_) { /* fail open */ }
+  try {
+    enrich = requestIntelligence.capture(req, telemetry && requestIntelligenceConfig.enableFrontendTelemetry
+      ? { skipVerification: true, skipBehavior: true, skipGeo: true } : {});
+  } catch (_) { /* fail open */ }
   const originalJson = res.json.bind(res);
 
   res.json = (body) => {
@@ -280,6 +292,13 @@ app.use((req, res, next) => {
     const route = requestRouteLabel(req);
     let intelligence = {};
     try { intelligence = enrich?.({ route, method: req.method, status }) || {}; } catch (_) { /* fail open */ }
+    try {
+      trafficAnalytics.recordApi({
+        ts: new Date().toISOString(), method: req.method, path: route, status,
+        aborted, telemetry, preflight: req.method === 'OPTIONS' && Boolean(req.headers.origin && req.headers['access-control-request-method']),
+        ...intelligence
+      });
+    } catch (_) { /* aggregation is independent from request handling */ }
 
     try {
       logEvent(level, 'http.request.completed', {
@@ -302,6 +321,17 @@ app.use((req, res, next) => {
 });
 
 // Attach lifecycle observation before parsers and CORS, including early exits.
+let telemetryMiddleware;
+try {
+  telemetryMiddleware = createTelemetryMiddleware(requestIntelligenceConfig, {
+    corsMiddleware,
+    ownHosts: CORS_ALLOWED_ORIGINS.map((origin) => { try { return new URL(origin).hostname; } catch (_) { return ''; } }).filter(Boolean),
+    onVisit: (visit, req) => trafficAnalytics.acceptVisit(visit, req)
+  });
+} catch (_) {
+  telemetryMiddleware = (_req, res) => res.status(503).end();
+}
+app.use('/telemetry/visit', telemetryMiddleware);
 app.use(express.json({ limit: '1mb' }));
 app.use((req, res, next) => corsMiddleware(req, res, next));
 
@@ -1722,7 +1752,10 @@ app.post('/enterprise/listings/:listingId/confirm-pickup', async (req, res) => {
 // Enabled observation must not delegate to Express's raw parser/stack output.
 // With the feature off, preserve the application's existing error response behavior.
 app.use((error, req, res, next) => {
-  if (!requestIntelligenceConfig.enableRequestIntelligence) return next(error);
+  if (!requestIntelligenceConfig.enableRequestIntelligence &&
+      !requestIntelligenceConfig.enableFrontendTelemetry &&
+      !requestIntelligenceConfig.enableGeoEnrichment &&
+      !requestIntelligenceConfig.enableTrafficAggregation) return next(error);
   if (res.headersSent) return next(error);
   const status = Number.isInteger(error.status) && error.status >= 400 && error.status < 500
     ? error.status : 500;
@@ -1735,13 +1768,35 @@ async function startServer(port = Number(process.env.PORT || 8080)) {
   const { migrateListingPrivacy } = require('../scripts/migrate_listing_privacy');
   const migration = await migrateListingPrivacy(db, admin.firestore.FieldValue);
   logEvent('info', 'listing.privacy.migration.completed', migration);
-  return app.listen(port, () => {
+  const server = app.listen(port, () => {
     console.log(`boxmatch server listening on ${port}`);
   });
+  try { trafficAnalytics.start(); } catch (_) { /* optional analytics startup */ }
+  server.once?.('close', () => { void trafficAnalytics.shutdown(2000); });
+  return server;
 }
 
 if (require.main === module) {
-  startServer().catch(() => {
+  startServer().then((server) => {
+    let stopping = false;
+    const stop = () => {
+      if (stopping) return;
+      stopping = true;
+      const drained = new Promise((resolve) => server.close(resolve));
+      let deadline;
+      void Promise.race([
+        Promise.allSettled([drained, trafficAnalytics.shutdown(2000)]),
+        new Promise((resolve) => { deadline = setTimeout(resolve, 2000); })
+      ]).finally(() => {
+        clearTimeout(deadline);
+        requestIntelligence.close?.();
+        server.closeAllConnections?.();
+        process.exit(0);
+      });
+    };
+    process.once('SIGTERM', stop);
+    process.once('SIGINT', stop);
+  }).catch(() => {
     logEvent('error', 'server.start.failed');
     process.exitCode = 1;
   });
@@ -1751,6 +1806,7 @@ module.exports = {
   app,
   startServer,
   __test: {
+    trafficAnalytics,
     asNumber,
     estimateKgFromItemType,
     normalizeAlias,
