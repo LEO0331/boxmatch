@@ -67,6 +67,7 @@ describe('bounded, sanitized traffic analytics snapshots', () => {
     await query.getOverview({ days: 7 });
     await query.getOverview({ days: '07' });
     expect(db.reads).toHaveLength(7);
+    expect((await query.getOverview({ days: 7 })).dataQuality.supportedPeriods).toEqual([7, 30]);
     await expect(query.getOverview({ days: 31 })).rejects.toMatchObject({ status: 400 });
   });
 

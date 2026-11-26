@@ -25,40 +25,33 @@ test('CSV quoting handles commas, quotes and controls independently of formula p
   expect(safeCsvCell(null)).toBe('');
 });
 
-test('exports only schema-approved counters and dimensions without per-visitor metadata', async () => {
-  admin.__seed('traffic_daily', '2026-11-25', {
-    schemaVersion: 1, dayKey: '2026-11-25', ipFingerprint: 'hmac:PRIVATE', rawIp: '8.8.8.8',
-    organization: '=PRIVATE_FORMULA', firebaseUid: 'PRIVATE_UID',
-    api: { totalRequests: 4, success: 2, clientErrors: 1, serverErrors: 1, aborted: 0,
-      classifications: { likely_human: 3, unknown: 1, PRIVATE_CLASS: 4 },
-      riskLevels: { low: 2, high: 2 }, verificationStatuses: { unverified: 3, verification_unavailable: 1 },
-      countries: { TW: 2, unknown: 1, other: 1, PRIVATE_COUNTRY: 1 },
-      asns: { 3462: 2, other: 1, unknown: 1, '-123': 9, '=PRIVATE': 1 },
-      identityConfidence: { trusted: 3, unresolved: 1 }, geoStatuses: { resolved: 2, unavailable: 2 } },
-    website: { pageViews: 2, pages: { home: 2 }, channels: { organic_search: 1, ai_referral: 1 },
-      campaignSources: { google: 1, other: 1 }, campaignMediums: { organic: 1, unknown: 1 },
-      browsers: { Chrome: 1, unknown: 1 }, operatingSystems: { 'Chrome OS': 1, unknown: 1 } }
-  });
+test('exports valid allowlisted aggregates without per-visitor metadata', async () => {
+  const { createTrafficAggregator } = require('../observability/trafficAggregator');
+  const aggregator = createTrafficAggregator({ enableTrafficAggregation: true }, { now: () => Date.parse('2026-11-25T12:00:00Z') });
+  aggregator.recordApi({ method: 'GET', path: '/listings', status: 200, network: { identityConfidence: 'trusted', geoStatus: 'resolved', country: 'TW', asn: 3462 } });
+  aggregator.recordVisit({ page: 'home', acquisitionChannel: 'ai_referral' });
+  const [data] = aggregator.takePending();
+  admin.__seed('traffic_daily', '2026-11-25', { ...data, rawIp: '8.8.8.8', firebaseUid: 'PRIVATE_UID' });
   const result = await exportTrafficCsv(admin.firestore(), { days: 1, now: '2026-11-25T12:00:00Z' });
-  expect(result.csv).toContain('dayKey,stream,dimension,key,count\n');
-  expect(result.csv).toContain('2026-11-25,api,totals,totalRequests,4\n');
-  expect(result.csv).toContain('2026-11-25,website,totals,pageViews,2\n');
-  expect(result.csv).toContain('2026-11-25,website,channels,ai_referral,1\n');
-  expect(result.csv).toContain('2026-11-25,api,asns,3462,2\n');
-  expect(result.csv).toContain('2026-11-25,api,countries,unknown,1\n');
-  expect(result.csv).toContain('2026-11-25,api,countries,other,1\n');
-  expect(result.csv).toContain('2026-11-25,api,verificationStatuses,verification_unavailable,1\n');
-  expect(result.csv).not.toMatch(/PRIVATE|8\.8\.8\.8|organization|firebaseUid|ipFingerprint/);
+  expect(result.csv).toContain('dayKey,stream,dimension,key,count,status\n');
+  expect(result.csv).toContain('2026-11-25,api,totals,totalRequests,1,available');
+  expect(result.csv).toContain('2026-11-25,website,channels,ai_referral,1,available');
+  expect(result.csv).toContain('2026-11-25,api,asns,3462,1,available');
+  expect(result.csv).not.toMatch(/PRIVATE|8\.8\.8\.8|firebaseUid|rawIp/);
 });
 
-test('missing documents yield zero daily totals and exactly one read per selected day', async () => {
+test('missing, malformed and unsupported documents are not exported as observed zeros', async () => {
+  admin.__seed('traffic_daily', '2026-11-24', { schemaVersion: 1, dayKey: '2026-11-24', api: { totalRequests: -1 } });
+  admin.__seed('traffic_daily', '2026-11-25', { schemaVersion: 2, dayKey: '2026-11-25' });
   const collection = jest.spyOn(admin.firestore(), 'collection');
   const result = await exportTrafficCsv(admin.firestore(), { days: 3, now: '2026-11-25T12:00:00Z' });
   expect(result.startKey).toBe('2026-11-23');
   expect(result.endKey).toBe('2026-11-25');
   expect(collection).toHaveBeenCalledTimes(3);
-  expect(result.rows).toBe(21);
-  expect(result.csv).toContain('2026-11-23,website,totals,pageViews,0\n');
+  expect(result.rows).toBe(3);
+  expect(result.csv).toContain('2026-11-23,,coverage,observation,,missing');
+  expect(result.csv).toContain('2026-11-24,,coverage,observation,,invalid');
+  expect(result.csv).toContain('2026-11-25,,coverage,observation,,unsupported');
   collection.mockRestore();
 });
 

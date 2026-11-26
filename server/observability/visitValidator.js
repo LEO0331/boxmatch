@@ -1,10 +1,9 @@
 const { extractSource } = require('./requestContext');
 
-const PAGES = Object.freeze(['home', 'listing_feed', 'map', 'listing_detail',
-  'enterprise_post', 'enterprise_edit', 'reservation', 'my_reservations', 'unknown']);
-const CAMPAIGN_SOURCES = Object.freeze(['google', 'bing', 'duckduckgo', 'facebook',
-  'instagram', 'linkedin', 'reddit', 'github', 'chatgpt', 'perplexity', 'claude', 'other']);
-const CAMPAIGN_MEDIUMS = Object.freeze(['organic', 'social', 'referral', 'email', 'cpc', 'paid_social', 'other']);
+const { ENUMS } = require('./trafficSchema');
+const PAGES = Object.freeze([...ENUMS.pages]);
+const CAMPAIGN_SOURCES = Object.freeze(ENUMS.campaignSources.filter((value) => value !== 'unknown'));
+const CAMPAIGN_MEDIUMS = Object.freeze(ENUMS.campaignMediums.filter((value) => value !== 'unknown'));
 const FIELDS = new Set(['schemaVersion', 'eventType', 'page', 'referrerDomain', 'campaignSource', 'campaignMedium']);
 
 function normalizeCampaign(value, allowed) {
