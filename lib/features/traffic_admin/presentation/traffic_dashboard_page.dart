@@ -416,6 +416,8 @@ class TrafficDashboardPage extends StatelessWidget {
                           ],
                         ),
                       ),
+                      if (overview.probes != null)
+                        _probeSection(context, overview.probes!),
                       TrafficSection(
                         title: t('Website acquisition', '網站流量來源'),
                         note: t(
@@ -700,6 +702,89 @@ class TrafficDashboardPage extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _probeSection(BuildContext context, TrafficProbeOverview probes) {
+    final totals = probes.totals;
+    String category(String key) => switch (key) {
+      'environment' => t('Environment files', '環境設定檔'),
+      'git_metadata' => t('Git metadata', 'Git 中繼資料'),
+      'wordpress' => t('WordPress', 'WordPress'),
+      'backup' => t('Backup files', '備份檔案'),
+      'path_traversal' => t('Path traversal', '路徑遍歷'),
+      'admin_tools' => t('Administration tools', '管理工具'),
+      'configuration' => t('Configuration', '組態設定'),
+      'credentials' => t('Credential files', '憑證檔案'),
+      'other_sensitive' => t('Other sensitive paths', '其他敏感路徑'),
+      'aborted' => t('Aborted', '連線中止'),
+      'other4xx' => t('Other 4xx', '其他 4xx'),
+      _ => trafficLabel(key, isZhTw),
+    };
+    return TrafficSection(
+      title: t('Security Probe Intelligence', '安全探測情報'),
+      note: t(
+        'Observation only. Matched requests are signals, not confirmed attacks or people. Only traffic reaching Express is observed.',
+        '僅供觀測；符合規則的請求是訊號，不代表已確認的攻擊或人數。僅觀測實際到達 Express 的流量。',
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(probes.enabled
+              ? t('Collection enabled', '已啟用收集')
+              : t('Collection disabled; historical observations only', '收集已停用；僅顯示歷史觀測')),
+          Text(t(
+            'Observed days: ${probes.observedDays}/${overview.coverage.requestedDays} · Invalid: ${probes.invalidDays}. Days may be partial.',
+            '有觀測的日期：${probes.observedDays}/${overview.coverage.requestedDays} · 無效：${probes.invalidDays}。日期可能僅有部分觀測。',
+          )),
+          const SizedBox(height: 12),
+          if (totals == null)
+            Text(t('No probe observations available; missing does not mean zero.',
+                '無可用探測觀測；缺少資料不代表零次。'))
+          else ...[
+            TrafficColumns(children: [
+              _metric(context, t('Requests observed', '已觀測請求'), totals['observedRequests']),
+              _metric(context, t('Matched probes', '符合規則的探測'), totals['matchedRequests']),
+              _metric(context, t('Correlatable probes', '可關聯探測'), totals['correlatedRequests']),
+              _metric(context, t('Repeat probe requests', '重複探測請求'), totals['repeatRequests']),
+              _metric(context, t('Multi-category requests', '跨類型探測請求'), totals['multiCategoryRequests']),
+              _metric(context, t('Probe 2xx responses', '探測 2xx 回應'), totals['success2xx']),
+            ]),
+            Text(t(
+              'Repeat and multi-category counts use a 60-second, process-local trusted fingerprint window; they are request counts, not unique sources. Review 2xx responses; they do not prove disclosure.',
+              '重複及跨類型計數採單程序 60 秒可信指紋視窗，為請求次數而非來源數。應檢查 2xx 回應，但不代表資料外洩。',
+            )),
+            TrafficTrend(
+              title: t('Daily matched probes', '每日探測次數'),
+              dates: overview.dailyTrends.map((day) => day.date).toList(),
+              isZhTw: isZhTw,
+              series: [TrafficSeries(t('Matched probes', '探測次數'),
+                  const Color(0xff8d5b0c), probes.counts)],
+            ),
+            TrafficColumns(children: [
+              for (final item in [
+                ('probeTargets', t('Probe targets', '探測目標')),
+                ('probeMethods', t('HTTP methods', 'HTTP 方法')),
+                ('probeHours', t('Hour of day (UTC)', '時段（UTC）')),
+                ('probeStatuses', t('Response outcomes', '回應結果')),
+                ('classifications', t('Probe client classifications', '探測用戶端分類')),
+                ('riskLevels', t('Probe risk levels', '探測風險等級')),
+                ('verificationStatuses', t('Probe bot verification', '探測機器人驗證')),
+                ('countries', t('Probe countries', '探測網路國別')),
+                ('asns', t('Probe ASNs', '探測網路 ASN')),
+                ('identityConfidence', t('Probe identity confidence', '探測來源可信度')),
+                ('geoStatuses', t('Probe geography coverage', '探測地理覆蓋')),
+              ])
+                TrafficDistribution(
+                  title: item.$2,
+                  values: dimension(totals, item.$1),
+                  isZhTw: isZhTw,
+                  label: category,
+                ),
+            ]),
+          ],
+        ],
       ),
     );
   }
