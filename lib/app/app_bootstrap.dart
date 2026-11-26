@@ -39,6 +39,9 @@ Future<AppDependencies> bootstrapApp() async {
     final repository = FirestoreSurplusRepository(
       FirebaseFirestore.instance,
       apiBaseUrl: apiBaseUrl,
+      currentRecipientUid: () => FirebaseAuth.instance.currentUser?.uid,
+      recipientUidChanges: FirebaseAuth.instance.authStateChanges().map((user) => user?.uid),
+      directReservationReads: const bool.fromEnvironment('BOXMATCH_DIRECT_RESERVATION_READS'),
       idTokenProvider: () async {
         final user = FirebaseAuth.instance.currentUser;
         if (user == null) {

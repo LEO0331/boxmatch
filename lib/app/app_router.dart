@@ -13,8 +13,6 @@ import '../features/surplus/presentation/browse/listing_detail_page.dart'
     deferred as listing_detail_page_deferred;
 import '../features/surplus/presentation/browse/my_reservations_page.dart'
     as my_reservations_page_direct;
-import '../features/surplus/presentation/browse/my_reservations_page.dart'
-    deferred as my_reservations_page_deferred;
 import '../features/surplus/presentation/browse/reservation_confirmation_page.dart'
     as reservation_confirmation_page_direct;
 import '../features/surplus/presentation/browse/reservation_confirmation_page.dart'
@@ -185,13 +183,8 @@ GoRouter buildRouter({
       ),
       GoRoute(
         path: '/my-reservations',
-        builder: (context, state) => kIsWeb
-            ? _DeferredRoutePage(
-                loadLibrary: my_reservations_page_deferred.loadLibrary,
-                builder: (_) =>
-                    my_reservations_page_deferred.MyReservationsPage(),
-              )
-            : const my_reservations_page_direct.MyReservationsPage(),
+        builder: (context, state) =>
+            const my_reservations_page_direct.MyReservationsPage(),
       ),
       GoRoute(
         path: '/enterprise/edit/:listingId',

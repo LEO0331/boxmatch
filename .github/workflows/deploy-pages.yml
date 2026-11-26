@@ -37,9 +37,14 @@ jobs:
           BOXMATCH_API_BASE_URL: ${{ secrets.BOXMATCH_API_BASE_URL }}
           BOXMATCH_ENABLE_TELEMETRY: ${{ vars.BOXMATCH_ENABLE_TELEMETRY || 'false' }}
           BOXMATCH_ENABLE_TRAFFIC_ADMIN: ${{ vars.BOXMATCH_ENABLE_TRAFFIC_ADMIN || 'false' }}
+          BOXMATCH_DIRECT_RESERVATION_READS: ${{ vars.BOXMATCH_DIRECT_RESERVATION_READS || 'false' }}
         run: |
           TELEMETRY_ENABLED=false
           TRAFFIC_ADMIN_ENABLED=false
+          DIRECT_RESERVATION_READS=false
+          if [ "$BOXMATCH_DIRECT_RESERVATION_READS" = "true" ]; then
+            DIRECT_RESERVATION_READS=true
+          fi
           if [ "$BOXMATCH_ENABLE_TRAFFIC_ADMIN" = "true" ]; then
             TRAFFIC_ADMIN_ENABLED=true
           fi
@@ -50,11 +55,13 @@ jobs:
             flutter build web --release --base-href /boxmatch/ \
               --dart-define=BOXMATCH_API_BASE_URL="$BOXMATCH_API_BASE_URL" \
               --dart-define=BOXMATCH_ENABLE_TELEMETRY="$TELEMETRY_ENABLED" \
-              --dart-define=BOXMATCH_ENABLE_TRAFFIC_ADMIN="$TRAFFIC_ADMIN_ENABLED"
+              --dart-define=BOXMATCH_ENABLE_TRAFFIC_ADMIN="$TRAFFIC_ADMIN_ENABLED" \
+              --dart-define=BOXMATCH_DIRECT_RESERVATION_READS="$DIRECT_RESERVATION_READS"
           else
             flutter build web --release --base-href /boxmatch/ \
               --dart-define=BOXMATCH_ENABLE_TELEMETRY="$TELEMETRY_ENABLED" \
-              --dart-define=BOXMATCH_ENABLE_TRAFFIC_ADMIN="$TRAFFIC_ADMIN_ENABLED"
+              --dart-define=BOXMATCH_ENABLE_TRAFFIC_ADMIN="$TRAFFIC_ADMIN_ENABLED" \
+              --dart-define=BOXMATCH_DIRECT_RESERVATION_READS="$DIRECT_RESERVATION_READS"
           fi
 
       - name: Setup Pages
