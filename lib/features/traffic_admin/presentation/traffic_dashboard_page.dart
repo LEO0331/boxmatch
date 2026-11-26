@@ -780,7 +780,11 @@ class TrafficDashboardPage extends StatelessWidget {
                   title: item.$2,
                   values: dimension(totals, item.$1),
                   isZhTw: isZhTw,
-                  label: category,
+                  label: item.$1 == 'countries'
+                      ? (key) => trafficCountryLabel(key, isZhTw)
+                      : item.$1 == 'asns'
+                      ? (key) => trafficAsnLabel(key, isZhTw)
+                      : category,
                 ),
             ]),
           ],

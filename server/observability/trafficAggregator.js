@@ -108,7 +108,7 @@ function createTrafficAggregator(config = {}, { now = Date.now } = {}) {
   const enabled = config.enableTrafficAggregation === true;
   const maxDays = limit(config.trafficMaxPendingDays, 3, 7);
   const days = new Map();
-  const probeWindow = config.enableSecurityProbes === true ? createProbeWindow({ now }) : null;
+  const probeWindow = enabled && config.enableSecurityProbes === true && config.enableRequestIntelligence === true ? createProbeWindow({ now }) : null;
   let droppedEvents = 0;
 
   function bucket(timestamp) {
@@ -223,6 +223,7 @@ function createTrafficAggregator(config = {}, { now = Date.now } = {}) {
       entry.data = mergeDailyData(snapshot, entry.data, config);
       entry.inFlight = null;
     },
+    close() { probeWindow?.close(); },
     get size() { return days.size; },
     get droppedEvents() { return droppedEvents; }
   };

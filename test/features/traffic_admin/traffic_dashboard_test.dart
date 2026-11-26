@@ -92,6 +92,7 @@ TrafficOverview fixtureOverview({
   bool stale = false,
   int requests = 100,
   List<int>? supportedPeriods,
+  TrafficProbeOverview? probes,
 }) => TrafficOverview(
   period: const TrafficPeriod(startDate: '2026-11-20', endDate: '2026-11-26'),
   coverage: TrafficCoverage(
@@ -195,6 +196,7 @@ TrafficOverview fixtureOverview({
           'geoStatuses': {'resolved': 45, 'unavailable': 30},
         },
   network: const {},
+  probes: probes,
   dataQuality: {
     'stale': stale,
     'currentDayPartial': true,
@@ -234,6 +236,20 @@ Future<void> showEntry(
 }
 
 void main() {
+  testWidgets('probe section shows explicit unavailable coverage', (tester) async {
+    final api = FakeAdminApi()
+      ..handler = (_) async => fixtureOverview(
+        probes: const TrafficProbeOverview(
+          enabled: true, observedDays: 0, invalidDays: 0,
+          totals: null, counts: [null, null, null],
+        ),
+      );
+    await showEntry(tester, FakeAdminSession(), api);
+    expect(find.text('Security Probe Intelligence'), findsOneWidget);
+    expect(find.text('No probe observations available; missing does not mean zero.'), findsOneWidget);
+  });
+
+
   testWidgets('disabled administrator UI never requests protected analytics', (
     tester,
   ) async {

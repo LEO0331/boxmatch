@@ -38,6 +38,7 @@ function createTrafficAnalytics(config, { db, logEvent, geoResolver, aggregator,
     shutdown(deadlineMs = 2000) {
       if (!closing) closing = (async () => {
         try { await writer?.shutdown(deadlineMs); } catch (_) { /* bounded best effort */ }
+        counters?.close?.();
         geo?.close();
       })();
       return closing;

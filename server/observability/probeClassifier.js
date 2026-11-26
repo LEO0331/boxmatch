@@ -25,7 +25,17 @@ function createProbeWindow({ now = Date.now, maxEntries = 2048, windowMs = 60000
   const entries = new Map();
   const maximum = Number.isInteger(maxEntries) ? Math.max(1, Math.min(2048, maxEntries)) : 2048;
   const window = Number.isInteger(windowMs) ? Math.max(1000, Math.min(300000, windowMs)) : 60000;
+  // Physically discard expired entries even if probes stop arriving. The
+  // sweep is bounded by maximum entries, and never keeps the process alive.
+  const timer = setInterval(() => {
+    const time = now();
+    for (const [key, entry] of entries) {
+      if (time - entry.start >= window) entries.delete(key);
+    }
+  }, window);
+  timer.unref?.();
   return {
+    close() { clearInterval(timer); entries.clear(); },
     observe(network, category) {
       const key = network?.ipFingerprint;
       if (network?.identityConfidence !== 'trusted' || typeof key !== 'string' ||

@@ -64,8 +64,11 @@ function createRequestIntelligence(config, dependencies = {}) {
       const rawAgent = headerValue(req.headers?.['user-agent'], 1024);
       const path = req.originalUrl || req.url || '';
       const probesEnabled = config.enableSecurityProbes === true && config.enableTrafficAggregation === true;
-      const probeCategory = probesEnabled ? classifyProbe(path) : null;
-      const suspiciousPath = Boolean(probeCategory) || classifySuspiciousPath(path);
+      const legacySuspicious = classifySuspiciousPath(path);
+      const probeCategory = probesEnabled
+        ? classifyProbe(path) || (legacySuspicious && path.length <= 4096 ? 'other_sensitive' : null)
+        : null;
+      const suspiciousPath = Boolean(probeCategory) || legacySuspicious;
       const client = classifyTraffic(rawAgent, { suspiciousPath });
       const source = extractSource(req);
       const preflight = req.method === 'OPTIONS' && Boolean(
