@@ -9,6 +9,7 @@ function createTrafficPersistence(config = {}, { db, aggregator, logEvent = () =
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
   const enabled = config.enableTrafficAggregation === true;
   const intervalMs = bounded(config.trafficFlushIntervalMs, 300000, 60000, 3600000);
+  const timeoutMs = bounded(config.trafficFlushTimeoutMs, 30000, 1000, 60000);
   const writeBudget = bounded(config.trafficWriteBudgetPerDay, 600, 2, 1000);
   const retentionDays = bounded(config.trafficRetentionDays, 90, 7, 365);
   let budgetDay = '';
@@ -40,13 +41,15 @@ function createTrafficPersistence(config = {}, { db, aggregator, logEvent = () =
     return new Date(`${snapshot.dayKey}T00:00:00Z`).getTime() >= cutoff;
   }
 
-  async function persist(snapshot, id) {
+  async function persist(snapshot, id, state) {
     const markerRef = db.collection('traffic_flushes').doc(id);
     const dailyRef = db.collection('traffic_daily').doc(snapshot.dayKey);
     return db.runTransaction(async (tx) => {
       const marker = await tx.get(markerRef);
       if (marker.exists) return 'replayed';
+      if (state.expired || shutdownExpired) throw new Error('TRAFFIC_FLUSH_DEADLINE');
       const existing = await tx.get(dailyRef);
+      if (state.expired || shutdownExpired) throw new Error('TRAFFIC_FLUSH_DEADLINE');
       const data = mergeDailyData(existing.data(), snapshot, config);
       tx.set(dailyRef, { ...data, updatedAt: new Date(now()) });
       tx.set(markerRef, { schemaVersion: 1, dayKey: snapshot.dayKey, createdAt: new Date(now()) });
@@ -54,7 +57,7 @@ function createTrafficPersistence(config = {}, { db, aggregator, logEvent = () =
     }, { maxAttempts: 1 });
   }
 
-  async function run() {
+  async function run(state) {
     const snapshots = aggregator.takePending();
     const result = { written: 0, replayed: 0, dropped: 0, deferred: 0 };
     for (const snapshot of snapshots) {
@@ -63,17 +66,17 @@ function createTrafficPersistence(config = {}, { db, aggregator, logEvent = () =
       let acknowledged = false;
       let attempted = false;
       for (let attempt = 1; attempt <= 3; attempt++) {
-        if (shutdownExpired || !reserveAttempt()) break;
+        if (state.expired || shutdownExpired || !reserveAttempt()) break;
         attempted = true;
         try {
-          const outcome = await persist(snapshot, id);
+          const outcome = await persist(snapshot, id, state);
           result[outcome]++;
           acknowledged = true;
           break;
         } catch (_) {
           // The commit may have succeeded. Retrying the same immutable delta
           // and marker ID cannot duplicate increments, even across instances.
-          if (attempt < 3 && !closing) await sleep(250 * 2 ** (attempt - 1));
+          if (attempt < 3 && !closing && !state.expired) await sleep(250 * 2 ** (attempt - 1));
           else break;
         }
       }
@@ -90,7 +93,7 @@ function createTrafficPersistence(config = {}, { db, aggregator, logEvent = () =
       }
     }
     if (result.deferred) log('warn', 'traffic.flush.deferred', {
-      code: shutdownExpired ? 'TRAFFIC_SHUTDOWN_DEADLINE_REACHED' : 'TRAFFIC_WRITE_BUDGET_EXHAUSTED'
+      code: shutdownExpired ? 'TRAFFIC_SHUTDOWN_DEADLINE_REACHED' : state.expired ? 'TRAFFIC_FLUSH_DEADLINE_REACHED' : 'TRAFFIC_WRITE_BUDGET_EXHAUSTED'
     });
     return result;
   }
@@ -101,10 +104,24 @@ function createTrafficPersistence(config = {}, { db, aggregator, logEvent = () =
     if (shutdownExpired) return Promise.resolve({ disabled: true });
     if (!force && lastFlushAt != null && now() - lastFlushAt < intervalMs) return Promise.resolve({ skipped: true });
     lastFlushAt = now();
-    inFlight = Promise.resolve().then(run).catch(() => {
+    const state = { expired: false };
+    let timeout;
+    const work = Promise.resolve().then(() => run(state)).catch(() => {
       log('warn', 'traffic.flush.failed', { code: 'TRAFFIC_FLUSH_FAILED' });
       return { failed: true };
-    }).finally(() => { inFlight = null; });
+    });
+    const deadline = new Promise((resolve) => {
+      timeout = setTimeout(() => {
+        state.expired = true;
+        log('warn', 'traffic.flush.timeout', { code: 'TRAFFIC_FLUSH_DEADLINE_REACHED' });
+        resolve({ timedOut: true });
+      }, timeoutMs);
+      timeout.unref?.();
+    });
+    inFlight = Promise.race([work, deadline]);
+    // A deadline cannot cancel a submitted commit. Retain the slot and batch
+    // identity until underlying work settles; never launch an overlapping retry.
+    work.finally(() => { clearTimeout(timeout); inFlight = null; }).catch(() => {});
     return inFlight;
   }
 

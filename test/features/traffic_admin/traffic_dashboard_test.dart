@@ -91,6 +91,7 @@ TrafficOverview fixtureOverview({
   bool empty = false,
   bool stale = false,
   int requests = 100,
+  List<int>? supportedPeriods,
 }) => TrafficOverview(
   period: const TrafficPeriod(startDate: '2026-11-20', endDate: '2026-11-26'),
   coverage: TrafficCoverage(
@@ -197,6 +198,7 @@ TrafficOverview fixtureOverview({
   dataQuality: {
     'stale': stale,
     'currentDayPartial': true,
+    if (supportedPeriods != null) 'supportedPeriods': supportedPeriods,
     'issues': ['MISSING_DAYS'],
     'flags': {
       'trafficAggregation': true,
@@ -495,6 +497,38 @@ void main() {
       await tester.pump(const Duration(seconds: 31));
     },
   );
+
+  testWidgets('pending export disables refresh and period changes then restores controls', (tester) async {
+    final pending = Completer<TrafficCsvExport>();
+    final api = FakeAdminApi()..exportHandler = (_) => pending.future;
+    await showEntry(tester, FakeAdminSession(), api, download: (_, _) => true);
+    await tester.tap(find.byKey(const ValueKey('traffic-export')));
+    await tester.pump();
+    expect(tester.widget<OutlinedButton>(find.byKey(const ValueKey('traffic-refresh'))).onPressed, isNull);
+    await tester.tap(find.byKey(const ValueKey('traffic-period')));
+    await tester.pumpAndSettle();
+    expect(find.text('30 days').hitTestable(), findsNothing);
+    expect(api.calls, [7]);
+    pending.complete(const TrafficCsvExport(filename: 'fixture.csv', content: 'fixture'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<OutlinedButton>(find.byKey(const ValueKey('traffic-refresh'))).onPressed, isNotNull);
+    await tester.tap(find.byKey(const ValueKey('traffic-period')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('30 days').last);
+    await tester.pumpAndSettle();
+    expect(api.calls, [7, 30]);
+  });
+
+  testWidgets('period selector follows the authorized backend capability', (tester) async {
+    final api = FakeAdminApi()..handler = (_) async => fixtureOverview(supportedPeriods: [7, 30]);
+    await showEntry(tester, FakeAdminSession(), api);
+    await tester.tap(find.byKey(const ValueKey('traffic-period')));
+    await tester.pumpAndSettle();
+    expect(find.text('90 days'), findsNothing);
+    await tester.tap(find.text('30 days').last);
+    await tester.pumpAndSettle();
+    expect(api.calls, [7, 30]);
+  });
 
   testWidgets('a late export cannot download after sign-out', (tester) async {
     final session = FakeAdminSession();
