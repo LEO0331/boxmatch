@@ -69,7 +69,7 @@ function createRequestIntelligence(config, dependencies = {}) {
       );
       // Schedule verification immediately, but never await it on the API path.
       if (!options.skipVerification) verifier.check(client.claimedBot, network);
-      return ({ route, method, status }) => {
+      return ({ route, method, status, skipBehavior = false }) => {
         const verificationStatus = options.skipVerification
           ? (client.claimedBot ? 'unverified' : 'not_applicable')
           : verifier.check(client.claimedBot, network);
@@ -77,7 +77,7 @@ function createRequestIntelligence(config, dependencies = {}) {
           fingerprint: network.ipFingerprint,
           identityConfidence: network.identityConfidence,
           method, route, status, userAgentPresent: Boolean(rawAgent),
-          suspiciousPath, verificationStatus, preflight: preflight || options.skipBehavior,
+          suspiciousPath, verificationStatus, preflight: preflight || options.skipBehavior || skipBehavior,
           healthCheck: route === '/health'
         });
         let location = {};

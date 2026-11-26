@@ -293,7 +293,7 @@ app.use((req, res, next) => {
     const level = status >= 500 ? 'error' : status >= 400 ? 'warn' : 'info';
     const route = requestRouteLabel(req);
     let intelligence = {};
-    try { intelligence = enrich?.({ route, method: req.method, status }) || {}; } catch (_) { /* fail open */ }
+    try { intelligence = enrich?.({ route, method: req.method, status, ...(res.locals.trafficAdminOperation ? { skipBehavior: true } : {}) }) || {}; } catch (_) { /* fail open */ }
     try {
       if (!res.locals.trafficAdminOperation) trafficAnalytics.recordApi({
         ts: new Date().toISOString(), method: req.method, path: route, status,
@@ -354,10 +354,14 @@ const requestWindows = new Map();
 app.use(['/enterprise', '/recipient'], (req, res, next) => {
   const key = sha256(resolveClientIp(req));
   const now = Date.now();
-  for (const [entry, window] of requestWindows) {
-    if (window.until <= now) requestWindows.delete(entry);
+  // Fixed windows are inserted in expiry order. Bound cleanup per request.
+  for (let i = 0; i < 32 && requestWindows.size; i++) {
+    const [entry, window] = requestWindows.entries().next().value;
+    if (window.until > now) break;
+    requestWindows.delete(entry);
   }
   let window = requestWindows.get(key);
+  if (window && window.until <= now) { requestWindows.delete(key); window = null; }
   if (!window) {
     if (requestWindows.size >= 10000) return errorResponse(res, 429, 'Request limit reached.', 'REQUEST_LIMIT_REACHED');
     window = { count: 0, until: now + 60000 };

@@ -15,6 +15,9 @@ function createTrafficAuth(config = {}, { auth, logEvent = () => {}, now = Date.
   const users = new Map();
   let globalUntil = 0;
   let globalCount = 0;
+  let verificationCount = 0;
+  // Bound untrusted bearer verification separately from authenticated operations.
+  const verificationLimit = Math.max(10, globalLimit * 2);
   let active = 0;
 
   function deny(req, res, status, code) {
@@ -43,8 +46,7 @@ function createTrafficAuth(config = {}, { auth, logEvent = () => {}, now = Date.
 
   return async (req, res, next) => {
     const timestamp = now();
-    if (timestamp >= globalUntil) { globalUntil = timestamp + 60000; globalCount = 0; }
-    if (++globalCount > globalLimit) return deny(req, res, 429, 'TRAFFIC_ADMIN_GLOBAL_LIMIT');
+    if (timestamp >= globalUntil) { globalUntil = timestamp + 60000; globalCount = 0; verificationCount = 0; }
     const rawHeaders = req.rawHeaders || [];
     let authorizationHeaders = 0;
     for (let index = 0; index < rawHeaders.length; index += 2) {
@@ -56,6 +58,8 @@ function createTrafficAuth(config = {}, { auth, logEvent = () => {}, now = Date.
       ? /^Bearer ([^\s]+)$/i.exec(header) : null;
     if (!match) return deny(req, res, 401, 'TRAFFIC_ADMIN_AUTH_REQUIRED');
     if (active >= concurrency) return deny(req, res, 429, 'TRAFFIC_ADMIN_AUTH_CAPACITY');
+    if (verificationCount >= verificationLimit) return deny(req, res, 429, 'TRAFFIC_ADMIN_VERIFICATION_LIMIT');
+    verificationCount++;
     active++;
     let timeout;
     try {
@@ -74,7 +78,11 @@ function createTrafficAuth(config = {}, { auth, logEvent = () => {}, now = Date.
           provider === 'anonymous' || decoded.trafficAdmin !== true) {
         return deny(req, res, 403, 'TRAFFIC_ADMIN_FORBIDDEN');
       }
-      if (!userAllowed(decoded.uid, now())) return deny(req, res, 429, 'TRAFFIC_ADMIN_USER_LIMIT');
+      const admittedAt = now();
+      if (admittedAt >= globalUntil) { globalUntil = admittedAt + 60000; globalCount = 0; verificationCount = 0; }
+      if (globalCount >= globalLimit) return deny(req, res, 429, 'TRAFFIC_ADMIN_GLOBAL_LIMIT');
+      if (!userAllowed(decoded.uid, admittedAt)) return deny(req, res, 429, 'TRAFFIC_ADMIN_USER_LIMIT');
+      globalCount++;
       return next();
     } catch (error) {
       const invalid = ['auth/argument-error', 'auth/invalid-argument', 'auth/invalid-id-token',

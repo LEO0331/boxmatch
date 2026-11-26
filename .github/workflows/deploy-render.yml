@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'server/**'
+      - 'scripts/**'
       - 'render.yaml'
       - '.github/workflows/deploy-render.yml'
   workflow_dispatch:
