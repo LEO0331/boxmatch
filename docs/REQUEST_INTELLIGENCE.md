@@ -230,6 +230,14 @@ while telemetry initialization, capture, or completion throws. No live Render/Fi
 smoke test or deployed proxy validation was performed. The production smoke script
 requires a separately provisioned API target and is not run against public data here.
 
+## Protected operator access
+
+The optional [traffic dashboard](TRAFFIC_DASHBOARD.md) visualizes persisted
+Phase 2 aggregates through an independently authorized API. It does not expose raw
+request logs or change observation-only risk scoring. Authorized analytics
+operations do not inflate public traffic totals; unauthorized administrator probes
+retain normal request observation and security controls.
+
 ## Trade-offs and later phases
 
 In-memory heuristics favor low cost and predictable resource use over complete

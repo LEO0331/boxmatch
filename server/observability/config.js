@@ -34,7 +34,18 @@ function readConfig(env = process.env) {
     geoCountryDbPath: localPath(env.GEO_COUNTRY_DB_PATH),
     geoAsnDbPath: localPath(env.GEO_ASN_DB_PATH),
     geoCacheMaxEntries: boundedInteger(env.GEO_CACHE_MAX_ENTRIES, 2000, 1, 10000),
-    geoCacheTtlMs: boundedInteger(env.GEO_CACHE_TTL_MS, 3600000, 1000, 86400000)
+    geoCacheTtlMs: boundedInteger(env.GEO_CACHE_TTL_MS, 3600000, 1000, 86400000),
+    enableTrafficAdmin: env.ENABLE_TRAFFIC_ADMIN === 'true',
+    trafficAdminCacheTtlMs: boundedInteger(env.TRAFFIC_ADMIN_CACHE_TTL_MS, 60000, 1000, 300000),
+    trafficAdminCacheMaxEntries: boundedInteger(env.TRAFFIC_ADMIN_CACHE_MAX_ENTRIES, 32, 1, 32),
+    trafficAdminMaxQueryDays: boundedInteger(env.TRAFFIC_ADMIN_MAX_QUERY_DAYS, 90, 1, 90),
+    trafficAdminRateLimitPerMinute: boundedInteger(env.TRAFFIC_ADMIN_RATE_LIMIT_PER_MINUTE, 10, 1, 30),
+    trafficAdminGlobalRateLimitPerMinute: boundedInteger(env.TRAFFIC_ADMIN_GLOBAL_RATE_LIMIT_PER_MINUTE, 60, 1, 120),
+    trafficAdminReadBudgetPerDay: boundedInteger(env.TRAFFIC_ADMIN_READ_BUDGET_PER_DAY, 3000, 1, 10000),
+    trafficAdminAuthConcurrency: boundedInteger(env.TRAFFIC_ADMIN_AUTH_CONCURRENCY, 4, 1, 4),
+    trafficAdminAuthTimeoutMs: boundedInteger(env.TRAFFIC_ADMIN_AUTH_TIMEOUT_MS, 5000, 100, 10000),
+    trafficAdminQueryTimeoutMs: boundedInteger(env.TRAFFIC_ADMIN_QUERY_TIMEOUT_MS, 5000, 100, 10000),
+    trafficAdminQueryConcurrency: boundedInteger(env.TRAFFIC_ADMIN_QUERY_CONCURRENCY, 2, 1, 2)
   });
 }
 

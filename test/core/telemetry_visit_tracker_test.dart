@@ -34,6 +34,8 @@ void main() {
       '/enterprise/edit/PRIVATE_ID',
       '/listing/PRIVATE_ID/reservation/PRIVATE_RESERVATION',
       '/map?token=PRIVATE_TOKEN',
+      '/admin/login',
+      '/admin/traffic',
     ]) {
       expect(classifyVisitPage(Uri.parse(path)), isNull);
     }

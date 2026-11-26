@@ -49,6 +49,7 @@ VisitTracker? createVisitTracker({
 
 String? classifyVisitPage(Uri route) {
   final segments = route.pathSegments.where((part) => part.isNotEmpty).toList();
+  if (segments.isNotEmpty && segments.first.toLowerCase() == 'admin') return null;
   if (route.queryParameters.keys.any(
     (key) => key.toLowerCase().contains('token'),
   )) {

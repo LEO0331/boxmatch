@@ -281,6 +281,14 @@ demo mode, endpoint 204/invalid/throttled responses, CORS origins, HMAC configur
 network confidence, local database paths, pending/write budgets and Firestore errors.
 Do not infer that a missing page view means no visitor arrived.
 
+## Protected dashboard
+
+The optional [traffic intelligence dashboard](TRAFFIC_DASHBOARD.md) reads these
+persisted aggregates through a separately authorized backend API. It does not alter
+collection or retention, expose direct client Firestore access, or add arbitrary
+cross-dimensional analytics. Dashboard operations are kept separate from public
+traffic counts; ordinary unauthorized probes remain observable.
+
 ## Coverage limits and later phases
 
 Verification on 2026-11-25 used Node 24 and local Flutter 3.47.2/Dart 3.13.2:
@@ -303,5 +311,5 @@ unavailable. Shared networks and spoofable headers limit attribution, and in-mem
 data can be lost. No dashboard, precise location, blocking, CAPTCHA, tracking cookie,
 hardware fingerprinting, session ID or paid infrastructure is introduced.
 
-Later phases can evaluate a protected operator dashboard after data quality,
+Further phases can evaluate additional operator tools after data quality,
 retention, quota use and privacy have been validated in production.

@@ -1,6 +1,9 @@
 import 'package:go_router/go_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'app_scope.dart';
+import '../features/traffic_admin/presentation/traffic_admin_entry.dart'
+    deferred as traffic_admin_page;
 
 import '../core/layout/app_shell.dart';
 import '../features/surplus/presentation/browse/listings_page.dart';
@@ -92,10 +95,31 @@ class _DeferredRoutePageState extends State<_DeferredRoutePage> {
   }
 }
 
-GoRouter buildRouter() {
+GoRouter buildRouter({
+  bool enableTrafficAdmin = const bool.fromEnvironment(
+    'BOXMATCH_ENABLE_TRAFFIC_ADMIN',
+  ),
+}) {
   return GoRouter(
     initialLocation: '/',
     routes: [
+      if (enableTrafficAdmin)
+        for (final location in ['/admin/login', '/admin/traffic'])
+          GoRoute(
+            path: location,
+            builder: (context, state) => _DeferredRoutePage(
+              loadLibrary: traffic_admin_page.loadLibrary,
+              builder: (_) {
+                final dependencies = AppScope.of(context);
+                return traffic_admin_page.TrafficAdminEntry(
+                  login: location == '/admin/login',
+                  enabled: enableTrafficAdmin,
+                  apiBaseUrl: dependencies.trafficAdminApiBaseUrl ?? '',
+                  isZhTw: dependencies.localeController.isZhTw,
+                );
+              },
+            ),
+          ),
       ShellRoute(
         builder: (context, state, child) {
           return AppShell(state: state, child: child);

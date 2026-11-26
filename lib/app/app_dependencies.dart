@@ -12,6 +12,7 @@ class AppDependencies {
     required this.localeController,
     required this.favoritesStore,
     this.visitTracker,
+    this.trafficAdminApiBaseUrl,
   });
 
   final SurplusRepository repository;
@@ -20,4 +21,5 @@ class AppDependencies {
   final AppLocaleController localeController;
   final VenueFavoritesStore favoritesStore;
   final VisitTracker? visitTracker;
+  final String? trafficAdminApiBaseUrl;
 }

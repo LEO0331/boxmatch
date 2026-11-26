@@ -234,9 +234,9 @@ const admin = {
   },
   auth() {
     return {
-      async verifyIdToken(token) {
+      async verifyIdToken(token, checkRevoked = false) {
         if (typeof state.verifyIdTokenImpl === 'function') {
-          return state.verifyIdTokenImpl(token);
+          return state.verifyIdTokenImpl(token, checkRevoked);
         }
         if (String(token).startsWith('valid:')) {
           return { uid: String(token).slice(6) };

@@ -27,6 +27,10 @@ test.describe('Boxmatch Flutter web smoke', () => {
       status: 200, contentType: 'application/json', body: '{"ok":true}',
       headers: { 'access-control-allow-origin': '*' }
     }));
+    await page.route('**/telemetry/visit', (route) => route.fulfill({
+      status: 204, headers: { 'access-control-allow-origin': '*',
+        'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'POST, OPTIONS' }
+    }));
     await page.route('**/recipient/**', (route) => route.fulfill({
       status: 200, contentType: 'application/json', body: '{"ok":true,"reservations":[]}',
       headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type,authorization' }

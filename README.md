@@ -66,6 +66,10 @@ Optional [traffic analytics](docs/TRAFFIC_ANALYTICS.md) adds privacy-aware web p
 views, local country/ASN enrichment, and bounded daily operational aggregates.
 Phase 2 remains disabled by default and does not track unique visitors or sessions.
 
+The optional [traffic intelligence dashboard](docs/TRAFFIC_DASHBOARD.md) gives
+explicitly provisioned administrators a protected view of persisted daily metrics.
+Its UI and backend access are disabled by default and add no public navigation.
+
 Set your API URL when building/running Flutter:
 
 ```bash

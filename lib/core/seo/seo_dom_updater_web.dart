@@ -7,8 +7,15 @@ void applySeoHead({
   required String description,
   required String canonicalUrl,
   required String ogImageUrl,
+  bool noIndex = false,
 }) {
   html.document.title = title;
+  _upsertMetaByName(
+    'robots',
+    noIndex
+        ? 'noindex, nofollow, noarchive'
+        : 'index, follow, max-image-preview:large',
+  );
   _upsertMetaByName('description', description);
   _upsertMetaByName('twitter:card', 'summary_large_image');
   _upsertMetaByName('twitter:title', title);
@@ -26,7 +33,8 @@ void applySeoHead({
 
 void _upsertMetaByName(String name, String content) {
   final selector = 'meta[name="$name"]';
-  final existing = html.document.head?.querySelector(selector) as html.MetaElement?;
+  final existing =
+      html.document.head?.querySelector(selector) as html.MetaElement?;
   if (existing != null) {
     existing.content = content;
     return;
@@ -39,7 +47,8 @@ void _upsertMetaByName(String name, String content) {
 
 void _upsertMetaByProperty(String property, String content) {
   final selector = 'meta[property="$property"]';
-  final existing = html.document.head?.querySelector(selector) as html.MetaElement?;
+  final existing =
+      html.document.head?.querySelector(selector) as html.MetaElement?;
   if (existing != null) {
     existing.content = content;
     return;
@@ -52,7 +61,8 @@ void _upsertMetaByProperty(String property, String content) {
 
 void _upsertCanonical(String url) {
   const selector = 'link[rel="canonical"]';
-  final existing = html.document.head?.querySelector(selector) as html.LinkElement?;
+  final existing =
+      html.document.head?.querySelector(selector) as html.LinkElement?;
   if (existing != null) {
     existing.href = url;
     return;

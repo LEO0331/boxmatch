@@ -96,4 +96,4 @@ function createGeoResolver(config = {}, { open = openDatabase, now = Date.now } 
   };
 }
 
-module.exports = { createGeoResolver };
+module.exports = { createGeoResolver, isCountryCode: (value) => COUNTRY_CODES.has(value) };

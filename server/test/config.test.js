@@ -11,7 +11,11 @@ test('request intelligence and external verification default disabled', () => {
     trafficFlushIntervalMs: 300000, trafficRetentionDays: 90, trafficMaxPendingDays: 3,
     trafficMaxAsnBuckets: 100, trafficMaxCountryBuckets: 100, trafficWriteBudgetPerDay: 600,
     telemetryMaxBodyBytes: 2048, telemetryRateLimitPerMinute: 20, telemetryGlobalRateLimitPerMinute: 300,
-    geoCountryDbPath: null, geoAsnDbPath: null, geoCacheMaxEntries: 2000, geoCacheTtlMs: 3600000
+    geoCountryDbPath: null, geoAsnDbPath: null, geoCacheMaxEntries: 2000, geoCacheTtlMs: 3600000,
+    enableTrafficAdmin: false, trafficAdminCacheTtlMs: 60000, trafficAdminCacheMaxEntries: 32,
+    trafficAdminMaxQueryDays: 90, trafficAdminRateLimitPerMinute: 10, trafficAdminGlobalRateLimitPerMinute: 60,
+    trafficAdminReadBudgetPerDay: 3000, trafficAdminAuthConcurrency: 4, trafficAdminAuthTimeoutMs: 5000,
+    trafficAdminQueryTimeoutMs: 5000, trafficAdminQueryConcurrency: 2
   });
 });
 
@@ -77,4 +81,20 @@ test('Phase 2 resource configuration rejects invalid or excessive limits', () =>
   expect(readConfig({ TRAFFIC_FLUSH_INTERVAL_MS: '60000', TELEMETRY_MAX_BODY_BYTES: '2049',
     TELEMETRY_GLOBAL_RATE_LIMIT_PER_MINUTE: '1001' }))
     .toMatchObject({ trafficFlushIntervalMs: 60000, telemetryMaxBodyBytes: 2048, telemetryGlobalRateLimitPerMinute: 300 });
+});
+
+test('administrator features default off and resource limits remain bounded', () => {
+  for (const value of ['false', 'TRUE', 'yes', '1']) expect(readConfig({ ENABLE_TRAFFIC_ADMIN: value }).enableTrafficAdmin).toBe(false);
+  expect(readConfig({ ENABLE_TRAFFIC_ADMIN: 'true' }).enableTrafficAdmin).toBe(true);
+  const limits = {
+    TRAFFIC_ADMIN_CACHE_TTL_MS: '300001', TRAFFIC_ADMIN_CACHE_MAX_ENTRIES: '33',
+    TRAFFIC_ADMIN_MAX_QUERY_DAYS: '91', TRAFFIC_ADMIN_RATE_LIMIT_PER_MINUTE: '31',
+    TRAFFIC_ADMIN_GLOBAL_RATE_LIMIT_PER_MINUTE: '121', TRAFFIC_ADMIN_READ_BUDGET_PER_DAY: '10001',
+    TRAFFIC_ADMIN_AUTH_CONCURRENCY: '5', TRAFFIC_ADMIN_AUTH_TIMEOUT_MS: '10001',
+    TRAFFIC_ADMIN_QUERY_CONCURRENCY: '3', TRAFFIC_ADMIN_QUERY_TIMEOUT_MS: '10001'
+  };
+  expect(readConfig(limits)).toEqual(readConfig({}));
+  for (const invalid of ['0', '-1', 'NaN', '1.5', '1e9']) {
+    expect(readConfig(Object.fromEntries(Object.keys(limits).map((key) => [key, invalid])))).toEqual(readConfig({}));
+  }
 });

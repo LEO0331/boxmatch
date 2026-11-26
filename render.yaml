@@ -35,3 +35,5 @@ services:
         value: "false"
       - key: ENABLE_TRAFFIC_AGGREGATION
         value: "false"
+      - key: ENABLE_TRAFFIC_ADMIN
+        value: "false"

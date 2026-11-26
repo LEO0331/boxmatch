@@ -6,6 +6,8 @@ const { readConfig } = require('./observability/config');
 const { createRequestIntelligence } = require('./observability/requestContext');
 const { createTrafficAnalytics, isTelemetryTransport } = require('./observability/trafficAnalytics');
 const { createTelemetryMiddleware } = require('./observability/telemetryEndpoint');
+const { createTrafficQueryService } = require('./admin/trafficQueryService');
+const { createTrafficRoutes } = require('./admin/trafficRoutes');
 
 if (!admin.apps.length) {
   const projectId = process.env.FIREBASE_PROJECT_ID;
@@ -293,7 +295,7 @@ app.use((req, res, next) => {
     let intelligence = {};
     try { intelligence = enrich?.({ route, method: req.method, status }) || {}; } catch (_) { /* fail open */ }
     try {
-      trafficAnalytics.recordApi({
+      if (!res.locals.trafficAdminOperation) trafficAnalytics.recordApi({
         ts: new Date().toISOString(), method: req.method, path: route, status,
         aborted, telemetry, preflight: req.method === 'OPTIONS' && Boolean(req.headers.origin && req.headers['access-control-request-method']),
         ...intelligence
@@ -332,6 +334,17 @@ try {
   telemetryMiddleware = (_req, res) => res.status(503).end();
 }
 app.use('/telemetry/visit', telemetryMiddleware);
+let trafficAdminMiddleware;
+try {
+  const queryService = createTrafficQueryService(requestIntelligenceConfig, { db });
+  trafficAdminMiddleware = createTrafficRoutes(requestIntelligenceConfig, { auth: admin.auth(), queryService, logEvent });
+} catch (_) {
+  trafficAdminMiddleware = (_req, res) => res.set('Cache-Control', 'private, no-store').status(503).end();
+}
+app.use('/admin/traffic', (req, res, next) => {
+  res.set('X-Robots-Tag', 'noindex, nofollow');
+  corsMiddleware(req, res, next);
+}, trafficAdminMiddleware);
 app.use(express.json({ limit: '1mb' }));
 app.use((req, res, next) => corsMiddleware(req, res, next));
 
@@ -1755,7 +1768,8 @@ app.use((error, req, res, next) => {
   if (!requestIntelligenceConfig.enableRequestIntelligence &&
       !requestIntelligenceConfig.enableFrontendTelemetry &&
       !requestIntelligenceConfig.enableGeoEnrichment &&
-      !requestIntelligenceConfig.enableTrafficAggregation) return next(error);
+      !requestIntelligenceConfig.enableTrafficAggregation &&
+      !requestIntelligenceConfig.enableTrafficAdmin) return next(error);
   if (res.headersSent) return next(error);
   const status = Number.isInteger(error.status) && error.status >= 400 && error.status < 500
     ? error.status : 500;

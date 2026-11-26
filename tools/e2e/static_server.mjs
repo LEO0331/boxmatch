@@ -16,7 +16,10 @@ const contentTypes = {
 };
 
 function resolvePath(urlPath) {
-  const decoded = decodeURIComponent(urlPath.split('?')[0]);
+  let decoded;
+  try { decoded = decodeURIComponent(urlPath.split('?')[0]); } catch (_) { return null; }
+  // Mirror the production Pages mount while retaining root smoke-test URLs.
+  if (decoded === '/boxmatch' || decoded.startsWith('/boxmatch/')) decoded = decoded.slice('/boxmatch'.length) || '/';
   const requested = normalize(join(root, decoded));
   if (requested !== root && !requested.startsWith(`${root}${sep}`)) {
     return null;

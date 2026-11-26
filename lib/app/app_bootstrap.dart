@@ -61,6 +61,7 @@ Future<AppDependencies> bootstrapApp() async {
       usingFirebase: true,
       localeController: localeController,
       favoritesStore: favoritesStore,
+      trafficAdminApiBaseUrl: apiBaseUrl,
       visitTracker: createVisitTracker(
         apiBaseUrl: apiBaseUrl,
         usingFirebase: true,
