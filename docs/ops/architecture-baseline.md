@@ -15,3 +15,6 @@ Updated 2026-11-26. The deployed full-stack application is designed for low-cost
 The versioned startup migration remains fail-closed. No active traffic blocking or new paid infrastructure is included. Direct database and static-only traffic bypass Express. Render free-tier cold starts and project-wide quotas remain operational constraints.
 
 See [system design](../system-design-review.en.md), [部署手冊](deploy-runbook.md), [final review](../TRAFFIC_FINAL_REVIEW.md), and [reservation performance](reservation-loading-performance.md).
+
+
+See [overall security architecture / 整體資安架構](../SECURITY_ARCHITECTURE.md). The opt-in [passive probe extension](../SECURITY_PROBE_INTELLIGENCE.md) reuses existing observation and daily aggregate infrastructure without new client permissions or enforcement.

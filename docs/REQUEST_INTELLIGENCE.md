@@ -252,3 +252,8 @@ geolocation/ASN enrichment, CAPTCHA, and blocking are outside Phase 1.
 ## Administrative analytics integration
 
 Authorized, normalized dashboard operations are excluded from behavioral counters and ordinary API aggregates; denied and malformed probes remain observable. The web application uses `strict-origin` for map tile compatibility, suppressing referrer paths and queries.
+
+
+## Passive probe extension
+
+[Passive Security Probe Intelligence](SECURITY_PROBE_INTELLIGENCE.md) optionally adds a fixed probe category to the existing completion event and reuses the existing aggregation path. `ENABLE_SECURITY_PROBES` defaults false and collection requires both request intelligence and traffic aggregation. It does not change request routing, access controls or responses. See [overall security architecture](SECURITY_ARCHITECTURE.md).

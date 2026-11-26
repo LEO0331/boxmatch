@@ -59,6 +59,8 @@ See [reservation performance](ops/reservation-loading-performance.md) for rollou
 
 ## 6. Traffic intelligence and operational boundaries
 
+See the [overall security architecture diagram](SECURITY_ARCHITECTURE.md) and [Passive Security Probe Intelligence](SECURITY_PROBE_INTELLIGENCE.md). The optional probe extension reuses request lifecycle classification, bounded daily persistence and the authorized dashboard/CSV, adding fixed target, method, UTC hour and response dimensions plus a bounded process-local 60-second trusted HMAC correlation window. It does not create fake resources or enforce policy. Historical gaps remain unobserved, and direct Firestore/static traffic bypasses this pipeline.
+
 Request Intelligence is observation-only: classify requests/crawlers, optionally verify crawler identity, score behavioral signals and enrich country/ASN using optional local databases. Raw IPs are not included in the structured observation logs; fingerprinting requires a secret and trusted network resolution. Frontend page views are opt-in and do not identify individual visitors or reconstruct prior traffic.
 
 Traffic analytics uses bounded in-memory aggregation, stable batch markers, transactional persistence, write/read budgets and explicit coverage status. A timed-out SDK write retains its slot until settlement to avoid uncertain duplicate commits. The dashboard exposes bounded daily summaries and CSV through authorized no-store endpoints; unknown/missing/invalid data is not represented as observed zero. No automatic bot blocking, queue service, Redis or paid infrastructure is introduced.
