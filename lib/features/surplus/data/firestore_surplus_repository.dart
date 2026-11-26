@@ -13,21 +13,79 @@ import '../domain/venue.dart';
 import 'seed_venues.dart';
 import 'surplus_repository.dart';
 
-class FirestoreSurplusRepository implements SurplusRepository {
+class FirestoreSurplusRepository
+    implements SurplusRepository, RecipientReservationReadCache {
   FirestoreSurplusRepository(
     this._firestore, {
     required String apiBaseUrl,
     http.Client? httpClient,
     Future<String?> Function()? idTokenProvider,
+    String? Function()? currentRecipientUid,
+    Stream<String?>? recipientUidChanges,
+    bool directReservationReads = false,
+    Future<List<Reservation>> Function(String uid)? directReservationReader,
   }) : _apiBaseUrl = apiBaseUrl,
        _http = httpClient ?? http.Client(),
-       _idTokenProvider = idTokenProvider;
+       _idTokenProvider = idTokenProvider,
+       _currentRecipientUid = currentRecipientUid,
+       _recipientUidChanges = recipientUidChanges,
+       _directReservationReads = directReservationReads,
+       _directReservationReader = directReservationReader;
 
   final FirebaseFirestore _firestore;
   final String _apiBaseUrl;
   final http.Client _http;
   final Future<String?> Function()? _idTokenProvider;
+  final String? Function()? _currentRecipientUid;
+  final Stream<String?>? _recipientUidChanges;
+  final bool _directReservationReads;
+  final Future<List<Reservation>> Function(String uid)? _directReservationReader;
   final Map<String, Reservation> _reservationCache = {};
+  String? _cacheOwner;
+  List<Reservation>? _recipientSnapshot;
+  DateTime? _snapshotAt;
+  Future<List<Reservation>>? _recipientPending;
+  int _recipientGeneration = 0;
+  static const _recipientCacheTtl = Duration(seconds: 30);
+  static const _recipientReadTimeout = Duration(seconds: 8);
+
+  @override
+  String? get currentRecipientUid => _currentRecipientUid?.call();
+
+  @override
+  Stream<String?> get recipientUidChanges =>
+      _recipientUidChanges ?? const Stream<String?>.empty();
+
+  void _invalidateRecipientSnapshot() {
+    _recipientGeneration++;
+    _recipientSnapshot = null;
+    _snapshotAt = null;
+    _recipientPending = null;
+  }
+
+  void _syncRecipientOwner() {
+    final uid = currentRecipientUid;
+    if (_cacheOwner != uid) {
+      _cacheOwner = uid;
+      _invalidateRecipientSnapshot();
+      _reservationCache.clear();
+    }
+  }
+
+  @override
+  List<Reservation>? cachedRecipientReservations(String claimerUid) {
+    _syncRecipientOwner();
+    final at = _snapshotAt;
+    if (at != null && DateTime.now().difference(at) > _recipientCacheTtl) {
+      _recipientSnapshot = null;
+      _snapshotAt = null;
+    }
+    if (currentRecipientUid == null || currentRecipientUid != claimerUid) {
+      return null;
+    }
+    return _recipientSnapshot;
+  }
+
   static const Duration _defaultTimeout = Duration(seconds: 8);
   static const Set<int> _retryableStatusCodes = {408, 429, 500, 502, 503, 504};
   static const Duration _pollFastInterval = Duration(seconds: 8);
@@ -112,6 +170,7 @@ class FirestoreSurplusRepository implements SurplusRepository {
 
   @override
   Stream<Reservation?> watchReservation(String reservationId) {
+    _syncRecipientOwner();
     final docStream = _reservationsRef
         .doc(reservationId)
         .snapshots()
@@ -120,6 +179,10 @@ class FirestoreSurplusRepository implements SurplusRepository {
             return null;
           }
           final reservation = Reservation.fromMap(doc.data()!, id: doc.id);
+          if (_currentRecipientUid != null &&
+              currentRecipientUid != reservation.claimerUid) {
+            return null;
+          }
           _reservationCache[reservation.id] = reservation;
           return reservation;
         })
@@ -129,9 +192,12 @@ class FirestoreSurplusRepository implements SurplusRepository {
         });
 
     final cached = _reservationCache[reservationId];
-    if (cached != null) {
+    if (cached != null &&
+        (_currentRecipientUid == null || currentRecipientUid == cached.claimerUid)) {
       return Stream<Reservation?>.multi((controller) {
-        controller.add(cached);
+        if (_currentRecipientUid == null || currentRecipientUid == cached.claimerUid) {
+          controller.add(cached);
+        }
         final sub = docStream.listen(controller.add, onDone: controller.close);
         controller.onCancel = sub.cancel;
       });
@@ -296,29 +362,104 @@ class FirestoreSurplusRepository implements SurplusRepository {
       throw const ValidationException('Reservation response missing id.');
     }
     final reservation = Reservation.fromMap(map, id: id);
-    _reservationCache[id] = reservation;
+    _syncRecipientOwner();
+    _invalidateRecipientSnapshot();
+    if (_currentRecipientUid == null || currentRecipientUid == reservation.claimerUid) {
+      _reservationCache[id] = reservation;
+    }
     return reservation;
   }
 
   @override
   Future<List<Reservation>> listRecipientReservations({
     required String claimerUid,
-  }) async {
+  }) {
+    _syncRecipientOwner();
+    if (_currentRecipientUid != null &&
+        (claimerUid.isEmpty || currentRecipientUid != claimerUid)) {
+      return Future.error(const PermissionDeniedException('Recipient identity unavailable.'));
+    }
+    final existing = _recipientPending;
+    if (existing != null && _cacheOwner == claimerUid) return existing;
+    final generation = _recipientGeneration;
+    late final Future<List<Reservation>> pending;
+    pending = _readRecipientReservations(claimerUid).then((reservations) {
+      if (_currentRecipientUid != null && currentRecipientUid != claimerUid) {
+        throw const PermissionDeniedException('Recipient identity changed.');
+      }
+      if (generation == _recipientGeneration && _cacheOwner == claimerUid) {
+        _recipientSnapshot = List.unmodifiable(reservations);
+        _snapshotAt = DateTime.now();
+        for (final reservation in reservations) {
+          _reservationCache[reservation.id] = reservation;
+        }
+      }
+      return reservations;
+    }).catchError((Object error, StackTrace stackTrace) {
+      if (generation == _recipientGeneration && _cacheOwner == claimerUid) {
+        _recipientSnapshot = null;
+        _snapshotAt = null;
+      }
+      Error.throwWithStackTrace(error, stackTrace);
+    }).whenComplete(() {
+      if (identical(_recipientPending, pending)) _recipientPending = null;
+    });
+    if (_cacheOwner == claimerUid) _recipientPending = pending;
+    return pending;
+  }
+
+  Future<List<Reservation>> _queryRecipientReservations(String claimerUid) async {
+    final snapshot = await _reservationsRef
+        .where('claimerUid', isEqualTo: claimerUid)
+        .get(const GetOptions(source: Source.server));
+    return snapshot.docs
+        .map((doc) => Reservation.fromMap(doc.data(), id: doc.id))
+        .toList();
+  }
+
+  Future<List<Reservation>> _readRecipientReservations(String claimerUid) async {
+    if (_directReservationReads) {
+      // The authenticated Firebase UID is authoritative, never a local fallback
+      // ID. The Firestore rule independently enforces ownership on every query.
+      if (currentRecipientUid == null || currentRecipientUid != claimerUid) {
+        throw const PermissionDeniedException('Recipient identity unavailable.');
+      }
+      try {
+        final read = _directReservationReader ?? _queryRecipientReservations;
+        final reservations = (await read(claimerUid).timeout(_recipientReadTimeout)).toList();
+        if (reservations.any((reservation) => reservation.claimerUid != claimerUid)) {
+          throw const PermissionDeniedException('Unexpected reservation owner.');
+        }
+        reservations.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        return reservations;
+      } on FirebaseException catch (error) {
+        if (error.code == 'permission-denied' || error.code == 'unauthenticated') {
+          throw const PermissionDeniedException('Reservation access denied.');
+        }
+        throw const ApiUnavailableException('Cannot load reservations.');
+      } on TimeoutException {
+        throw const ApiUnavailableException('Cannot load reservations.');
+      }
+    }
+    // Rollback path only: keep the existing token-protected API contract.
     final response = await _postJson(
       '/recipient/reservations/list',
       {'claimerUid': claimerUid},
-      maxAttempts: 3,
+      maxAttempts: 2,
       includeAuth: true,
+      boundAuth: true,
     );
     final raw = response['reservations'];
     if (raw is! List) {
-      return const <Reservation>[];
+      throw const ValidationException('Invalid reservation list response.');
     }
     final reservations = raw.whereType<Map>().map((entry) {
       final map = Map<String, dynamic>.from(entry);
       final id = map.remove('id') as String? ?? '';
       final reservation = Reservation.fromMap(map, id: id);
-      _reservationCache[id] = reservation;
+      if (reservation.claimerUid != claimerUid) {
+        throw const PermissionDeniedException('Unexpected reservation owner.');
+      }
       return reservation;
     }).toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return reservations;
@@ -335,6 +476,8 @@ class FirestoreSurplusRepository implements SurplusRepository {
       maxAttempts: 3,
       includeAuth: true,
     );
+    _syncRecipientOwner();
+    _invalidateRecipientSnapshot();
     final cached = _reservationCache[reservationId];
     if (cached != null && cached.status == ReservationStatus.reserved) {
       _reservationCache[reservationId] = cached.copyWith(
@@ -355,6 +498,8 @@ class FirestoreSurplusRepository implements SurplusRepository {
       'reservationId': reservationId,
       'pickupCode': pickupCode,
     });
+    _invalidateRecipientSnapshot();
+    _reservationCache.remove(reservationId);
   }
 
   @override
@@ -446,6 +591,7 @@ class FirestoreSurplusRepository implements SurplusRepository {
     Map<String, dynamic> payload, {
     int maxAttempts = 1,
     bool includeAuth = false,
+    bool boundAuth = false,
   }) async {
     final uri = Uri.parse('${_apiBaseUrl.replaceAll(RegExp(r'/+$'), '')}$path');
     if (maxAttempts < 1) {
@@ -457,7 +603,7 @@ class FirestoreSurplusRepository implements SurplusRepository {
         final response = await _http
             .post(
               uri,
-              headers: await _buildHeaders(includeAuth: includeAuth),
+              headers: await _buildHeaders(includeAuth: includeAuth, boundAuth: boundAuth),
               body: jsonEncode(payload),
             )
             .timeout(_defaultTimeout);
@@ -521,7 +667,7 @@ class FirestoreSurplusRepository implements SurplusRepository {
     throw const ValidationException('Request failed.');
   }
 
-  Future<Map<String, String>> _buildHeaders({required bool includeAuth}) async {
+  Future<Map<String, String>> _buildHeaders({required bool includeAuth, bool boundAuth = false}) async {
     final headers = <String, String>{'content-type': 'application/json'};
     final tokenProvider = _idTokenProvider;
     if (!includeAuth || tokenProvider == null) {
@@ -529,7 +675,9 @@ class FirestoreSurplusRepository implements SurplusRepository {
     }
 
     try {
-      final token = await tokenProvider.call();
+      final token = await (boundAuth
+          ? tokenProvider.call().timeout(const Duration(seconds: 4))
+          : tokenProvider.call());
       if (token != null && token.isNotEmpty) {
         headers['authorization'] = 'Bearer $token';
       }

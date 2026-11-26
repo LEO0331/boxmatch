@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -7,19 +9,10 @@ import '../../../../core/i18n/language_menu_button.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/load_error_view.dart';
 import '../../../../core/utils/date_time_formatters.dart';
+import '../../../surplus/data/surplus_repository.dart';
 import '../../../surplus/domain/listing.dart';
 import '../../../surplus/domain/reservation.dart';
 import '../../../surplus/domain/surplus_exceptions.dart';
-
-class _ReservationWithListing {
-  const _ReservationWithListing({
-    required this.reservation,
-    required this.listing,
-  });
-
-  final Reservation reservation;
-  final Listing? listing;
-}
 
 class MyReservationsPage extends StatefulWidget {
   const MyReservationsPage({super.key});
@@ -29,79 +22,174 @@ class MyReservationsPage extends StatefulWidget {
 }
 
 class _MyReservationsPageState extends State<MyReservationsPage> {
-  static const Duration _loadRetryDelay = Duration(milliseconds: 700);
-  Future<String>? _uidFuture;
-  Future<List<_ReservationWithListing>>? _loadFuture;
+  static const _loadDeadline = Duration(seconds: 25);
+  static const _listingDeadline = Duration(seconds: 5);
+  static const _listingConcurrency = 6;
+  List<Reservation>? _reservations;
+  final Map<String, Listing?> _listingDetails = {};
+  RecipientReservationReadCache? _cache;
+  StreamSubscription<String?>? _uidSubscription;
+  Future<void>? _hydration;
+  String? _owner;
+  bool _initialized = false, _loading = true, _loadError = false;
+  bool _cancelling = false;
+  int _generation = 0;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _uidFuture ??= AppScope.of(context).identityService.ensureRecipientUid();
-    _loadFuture ??= _loadReservations();
+    if (_initialized) return;
+    _initialized = true;
+    final repository = AppScope.of(context).repository;
+    if (repository is RecipientReservationReadCache) {
+      _cache = repository as RecipientReservationReadCache;
+      _uidSubscription = _cache!.recipientUidChanges.listen((uid) {
+        if (!mounted || _owner == null || uid == _owner) return;
+        setState(() {
+          _generation++;
+          _owner = null;
+          _reservations = null;
+          _listingDetails.clear();
+          _loading = false;
+          _loadError = true;
+          _cancelling = false;
+        });
+      });
+    }
+    unawaited(_loadReservations());
   }
 
-  Future<List<_ReservationWithListing>> _loadReservations() async {
+  bool _isCurrent(int generation) => mounted && generation == _generation;
+
+  Future<void> _loadReservations() async {
+    final deps = AppScope.of(context);
+    final generation = ++_generation;
+    setState(() {
+      _loading = true;
+      _loadError = false;
+    });
     try {
-      return await _loadReservationsOnce();
-    } on SurplusException {
-      await Future<void>.delayed(_loadRetryDelay);
-      return _loadReservationsOnce();
+      final uid = await deps.identityService
+          .ensureRecipientUid()
+          .timeout(const Duration(seconds: 8));
+      if (!_isCurrent(generation)) return;
+      if (_cache != null && _cache!.currentRecipientUid != uid) {
+        throw const PermissionDeniedException('Recipient identity unavailable.');
+      }
+      final cached = _cache?.cachedRecipientReservations(uid);
+      setState(() {
+        if (_owner != uid) {
+          _reservations = null;
+          _listingDetails.clear();
+        }
+        _owner = uid;
+        if (cached != null) _reservations = cached;
+      });
+      // The repository owns retry policy. Never repeat the whole operation.
+      final reservations = await deps.repository
+          .listRecipientReservations(claimerUid: uid)
+          .timeout(_loadDeadline);
+      if (!_isCurrent(generation)) return;
+      if (_cache != null && _cache!.currentRecipientUid != uid) {
+        throw const PermissionDeniedException('Recipient identity changed.');
+      }
+      final listingIds = reservations.map((r) => r.listingId).toSet();
+      setState(() {
+        _reservations = reservations;
+        _listingDetails.removeWhere((id, _) => !listingIds.contains(id));
+        _loading = false;
+      });
+      // Pickup codes and statuses are already available. Listing enrichment is
+      // independent, deduplicated and bounded; slow/missing details cannot block.
+      final previous = _hydration ?? Future<void>.value();
+      final hydration = previous.then((_) async {
+        if (_isCurrent(generation)) {
+          await _hydrateListings(deps.repository, reservations, generation);
+        }
+      });
+      _hydration = hydration;
+      unawaited(hydration);
     } catch (_) {
-      await Future<void>.delayed(_loadRetryDelay);
-      return _loadReservationsOnce();
+      if (!_isCurrent(generation)) return;
+      setState(() {
+        _reservations = null;
+        _listingDetails.clear();
+        _loading = false;
+        _loadError = true;
+      });
     }
   }
 
-  Future<List<_ReservationWithListing>> _loadReservationsOnce() async {
-    final deps = AppScope.of(context);
-    final uid = await (_uidFuture ?? deps.identityService.ensureRecipientUid());
-    final reservations = await deps.repository.listRecipientReservations(
-      claimerUid: uid,
-    );
-    final items = await Future.wait(
-      reservations.map((reservation) async {
-        final listing = await deps.repository
-            .watchListing(reservation.listingId)
-            .first;
-        return _ReservationWithListing(
-          reservation: reservation,
-          listing: listing,
-        );
-      }),
-    );
-    return items;
+  Future<void> _hydrateListings(
+    SurplusRepository repository,
+    List<Reservation> reservations,
+    int generation,
+  ) async {
+    final ids = reservations.map((r) => r.listingId).where((id) => id.isNotEmpty).toSet().toList();
+    for (var start = 0; start < ids.length; start += _listingConcurrency) {
+      if (!_isCurrent(generation)) return;
+      await Future.wait(ids.skip(start).take(_listingConcurrency).map((id) async {
+        try {
+          final listing = await repository.watchListing(id)
+              .timeout(_listingDeadline).first;
+          if (_isCurrent(generation)) {
+            setState(() => _listingDetails[id] = listing);
+          }
+        } catch (_) {
+          // Keep the reservation visible; optional listing metadata is unavailable.
+        }
+      }));
+    }
   }
 
   void _refresh() {
-    setState(() {
-      _loadFuture = _loadReservations();
-    });
+    if (_loading || _cancelling) return;
+    unawaited(_loadReservations());
   }
 
   Future<void> _cancelReservation(Reservation reservation) async {
+    if (_loading || _cancelling) return;
     final deps = AppScope.of(context);
     final s = AppStrings.of(context);
-    final uid = await (_uidFuture ?? deps.identityService.ensureRecipientUid());
+    final uid = _owner;
+    if (uid == null || uid != reservation.claimerUid ||
+        (_cache != null && _cache!.currentRecipientUid != uid)) {
+      return;
+    }
+    final generation = _generation;
+    setState(() => _cancelling = true);
     try {
       await deps.repository.cancelReservation(
         reservationId: reservation.id,
         claimerUid: uid,
       );
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(s.reservationCancelled)));
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        _reservations = _reservations?.map((item) =>
+          item.id == reservation.id
+              ? item.copyWith(status: ReservationStatus.cancelled)
+              : item).toList();
+        _cancelling = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(s.reservationCancelled)),
+      );
       _refresh();
     } on SurplusException catch (error) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.message)));
+      if (!mounted || generation != _generation) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } finally {
+      if (_isCurrent(generation)) setState(() => _cancelling = false);
     }
+  }
+
+  @override
+  void dispose() {
+    _generation++;
+    unawaited(_uidSubscription?.cancel());
+    super.dispose();
   }
 
   Color _statusColor(ReservationStatus status) {
@@ -147,7 +235,7 @@ class _MyReservationsPageState extends State<MyReservationsPage> {
         title: Text(s.myReservationsTitle),
         actions: [
           IconButton(
-            onPressed: _refresh,
+            onPressed: _loading || _cancelling ? null : _refresh,
             tooltip: s.refresh,
             icon: const Icon(Icons.refresh),
           ),
@@ -155,10 +243,9 @@ class _MyReservationsPageState extends State<MyReservationsPage> {
         ],
       ),
       body: desktopFrame(
-        FutureBuilder<List<_ReservationWithListing>>(
-          future: _loadFuture,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
+        Builder(
+          builder: (context) {
+            if (_loading && (_reservations == null || _reservations!.isEmpty)) {
               return ListView.builder(
                 padding: const EdgeInsets.all(12),
                 itemCount: 4,
@@ -192,7 +279,7 @@ class _MyReservationsPageState extends State<MyReservationsPage> {
                 ),
               );
             }
-            if (snapshot.hasError) {
+            if (_loadError) {
               return Column(
                 children: [
                   Container(
@@ -226,7 +313,7 @@ class _MyReservationsPageState extends State<MyReservationsPage> {
               );
             }
 
-            final items = snapshot.data ?? const <_ReservationWithListing>[];
+            final items = _reservations ?? const <Reservation>[];
             if (items.isEmpty) {
               return Center(
                 child: Padding(
@@ -256,6 +343,15 @@ class _MyReservationsPageState extends State<MyReservationsPage> {
             return ListView(
               padding: const EdgeInsets.all(12),
               children: [
+                if (_loading)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Text(
+                      AppScope.of(context).localeController.isZhTw
+                          ? '正在重新確認預約資料，暫時無法操作。'
+                          : 'Refreshing reservations. Actions are temporarily unavailable.',
+                    ),
+                  ),
                 Card(
                   color: Theme.of(context).colorScheme.surfaceContainerLow,
                   child: Padding(
@@ -282,9 +378,8 @@ class _MyReservationsPageState extends State<MyReservationsPage> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                ...items.map((item) {
-                  final reservation = item.reservation;
-                  final listing = item.listing;
+                ...items.map((reservation) {
+                  final listing = _listingDetails[reservation.listingId];
                   final badgeLabels =
                       (listing?.enterpriseBadges ?? const <String>[])
                           .map(s.enterpriseBadgeLabel)
@@ -360,13 +455,17 @@ class _MyReservationsPageState extends State<MyReservationsPage> {
                       ),
                       trailing: reservation.status == ReservationStatus.reserved
                           ? OutlinedButton(
-                              onPressed: () => _cancelReservation(reservation),
+                              onPressed: _loading || _cancelling
+                                  ? null
+                                  : () => _cancelReservation(reservation),
                               child: Text(s.cancelReservation),
                             )
                           : null,
-                      onTap: () => context.go(
-                        '/listing/${reservation.listingId}/reservation/${reservation.id}',
-                      ),
+                      onTap: _loading || _cancelling
+                          ? null
+                          : () => context.go(
+                              '/listing/${reservation.listingId}/reservation/${reservation.id}',
+                            ),
                     ),
                   );
                 }),

@@ -9,12 +9,24 @@ class FirebaseRecipientIdentityService implements RecipientIdentityService {
   final FirebaseAuth _auth;
   final RecipientIdentityService _fallback;
   bool _usingLocalFallback = false;
+  Future<String>? _pendingIdentity;
 
   @override
   bool get isUsingLocalFallback => _usingLocalFallback;
 
   @override
-  Future<String> ensureRecipientUid() async {
+  Future<String> ensureRecipientUid() {
+    final pending = _pendingIdentity;
+    if (pending != null) return pending;
+    late final Future<String> next;
+    next = _resolveIdentity().whenComplete(() {
+      if (identical(_pendingIdentity, next)) _pendingIdentity = null;
+    });
+    _pendingIdentity = next;
+    return next;
+  }
+
+  Future<String> _resolveIdentity() async {
     try {
       final currentUser = _auth.currentUser;
       if (currentUser != null) {

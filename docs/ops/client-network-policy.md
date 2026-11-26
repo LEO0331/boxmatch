@@ -56,3 +56,7 @@
 
 - Keep retry count conservative on Spark/POC infra to avoid accidental traffic spikes.
 - For create/update/revoke actions, retries can be enabled later only after validating full idempotency guarantees.
+
+## My Reservations read path
+
+When `BOXMATCH_DIRECT_RESERVATION_READS=true`, the authenticated client queries Firestore directly using `reservations.where('claimerUid', isEqualTo: currentUid)` and a server-source read (8-second deadline). The existing rule requires the authenticated UID to match the document owner; missing/mismatched identity and permission errors fail closed. Mutations still require the existing API token checks and transactions. There is no implicit API fallback. The rollback read path has two HTTP attempts, token acquisition bounded to four seconds per attempt, and no page-level retry. The page bounds identity acquisition to eight seconds and list loading to 25 seconds separately. It shows records before optional listing metadata, with at most six simultaneous listing lookups and a five-second timeout per lookup. Direct reads do not enter Express request analytics. See [rollout](reservation-loading-performance.md).

@@ -8,7 +8,7 @@ function privateEnterpriseKey(value) {
   return `legacy:${crypto.createHash('sha256').update(value).digest('hex')}`;
 }
 
-// Startup runs this before opening the HTTP listener; a standalone CLI is also available.
+// The versioned startup wrapper runs this before opening the listener; the CLI can force a rescan.
 // Each listing moves atomically and can safely be processed again after a retry.
 async function migrateListingPrivacy(db, FieldValue) {
   const listings = await db.collection('listings').get();
@@ -67,6 +67,28 @@ async function migrateListingPrivacy(db, FieldValue) {
   return { scanned: listings.docs.length, migrated };
 }
 
+// This marker is written only after all migration transactions have succeeded.
+// Concurrent first startups may repeat the idempotent scan; no incomplete run
+// publishes completion. Old binaries or external imports require a forced rescan.
+const PRIVACY_MIGRATION_VERSION = 1;
+async function ensureListingPrivacyMigration(db, FieldValue, { force = false } = {}) {
+  const marker = db.collection('schema_migrations').doc('listing_privacy_v1');
+  if (force) {
+    // Invalidate completion before a forced legacy import/rollback rescan.
+    // Otherwise a failed rescan could leave a previously completed marker.
+    await marker.set({ version: PRIVACY_MIGRATION_VERSION, completed: false });
+  } else {
+    const snapshot = await marker.get();
+    const data = snapshot.data();
+    if (snapshot.exists && data?.version === PRIVACY_MIGRATION_VERSION && data.completed === true) {
+      return { scanned: 0, migrated: 0, skipped: true };
+    }
+  }
+  const result = await migrateListingPrivacy(db, FieldValue);
+  await marker.set({ version: PRIVACY_MIGRATION_VERSION, completed: true, completedAt: new Date() });
+  return { ...result, skipped: false };
+}
+
 async function main() {
   const admin = require('../server/firebaseAdmin');
   const projectId = process.env.FIREBASE_PROJECT_ID;
@@ -80,7 +102,7 @@ async function main() {
       projectId, clientEmail, privateKey: privateKey.replace(/\\n/g, '\n')
     }) });
   }
-  const result = await migrateListingPrivacy(admin.firestore(), admin.firestore.FieldValue);
+  const result = await ensureListingPrivacyMigration(admin.firestore(), admin.firestore.FieldValue, { force: true });
   console.log(JSON.stringify({ ok: true, ...result }));
 }
 
@@ -91,4 +113,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { migrateListingPrivacy };
+module.exports = { migrateListingPrivacy, ensureListingPrivacyMigration };

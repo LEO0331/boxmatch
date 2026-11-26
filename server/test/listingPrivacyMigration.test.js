@@ -1,5 +1,5 @@
 const admin = require('./firebaseAdminMock');
-const { migrateListingPrivacy } = require('../../scripts/migrate_listing_privacy');
+const { migrateListingPrivacy, ensureListingPrivacyMigration } = require('../../scripts/migrate_listing_privacy');
 
 const migrate = () => migrateListingPrivacy(admin.firestore(), admin.firestore.FieldValue);
 
@@ -65,4 +65,51 @@ describe('listing privacy migration', () => {
     expect(await migrate()).toEqual({ scanned: 1, migrated: 0 });
     expect(admin.__dump('listing_private')).toEqual([]);
   });
+});
+
+describe('versioned startup privacy migration', () => {
+  beforeEach(() => admin.__reset());
+  afterEach(() => jest.restoreAllMocks());
+
+  const ensure = (options) => ensureListingPrivacyMigration(admin.firestore(), admin.firestore.FieldValue, options);
+
+  test('publishes completion after success and skips all listing transactions on later starts', async () => {
+    admin.__seed('listings', 'legacy', { editTokenHash: 'legacy-hash', enterpriseKey: 'alias:legacy' });
+    expect(await ensure()).toEqual({ scanned: 1, migrated: 1, skipped: false });
+    expect(admin.__dump('schema_migrations')[0].data).toMatchObject({ version: 1, completed: true });
+    const transaction = jest.spyOn(admin.firestore(), 'runTransaction');
+    expect(await ensure()).toEqual({ scanned: 0, migrated: 0, skipped: true });
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  test('failed scans never publish completion and next startup retries', async () => {
+    admin.__seed('listings', 'legacy', { editTokenHash: 'legacy-hash' });
+    jest.spyOn(admin.firestore(), 'runTransaction').mockRejectedValueOnce(new Error('unavailable'));
+    await expect(ensure()).rejects.toThrow('unavailable');
+    expect(admin.__dump('schema_migrations')).toEqual([]);
+    expect(await ensure()).toMatchObject({ migrated: 1, skipped: false });
+  });
+
+  test('invalid markers do not bypass migration; operator force rescans completed migrations', async () => {
+    admin.__seed('schema_migrations', 'listing_privacy_v1', { version: 0, completed: true });
+    expect(await ensure()).toMatchObject({ skipped: false });
+    admin.__seed('listings', 'imported', { editTokenHash: 'imported-hash' });
+    expect(await ensure({ force: true })).toMatchObject({ migrated: 1, skipped: false });
+    expect(admin.__dump('listings')[0].data).not.toHaveProperty('editTokenHash');
+  });
+});
+
+test('failed forced rescan invalidates a previously complete marker and retries on startup', async () => {
+  admin.__reset();
+  const ensure = (options) => ensureListingPrivacyMigration(admin.firestore(), admin.firestore.FieldValue, options);
+  await ensure();
+  admin.__seed('listings', 'legacy-import', { editTokenHash: 'legacy-hash' });
+  const transaction = jest.spyOn(admin.firestore(), 'runTransaction').mockRejectedValueOnce(new Error('unavailable'));
+  try {
+    await expect(ensure({ force: true })).rejects.toThrow('unavailable');
+    expect(admin.__dump('schema_migrations')[0].data.completed).toBe(false);
+    expect(await ensure()).toMatchObject({ migrated: 1, skipped: false });
+  } finally {
+    transaction.mockRestore();
+  }
 });

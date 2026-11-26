@@ -73,3 +73,11 @@ abstract interface class SurplusRepository {
     required String reason,
   });
 }
+
+// Optional capability for an authenticated repository. Never persist pickup
+// codes in browser storage, and never return a snapshot for another identity.
+abstract interface class RecipientReservationReadCache {
+  String? get currentRecipientUid;
+  Stream<String?> get recipientUidChanges;
+  List<Reservation>? cachedRecipientReservations(String claimerUid);
+}
