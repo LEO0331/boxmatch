@@ -23,12 +23,14 @@ class FirestoreSurplusRepository
     String? Function()? currentRecipientUid,
     Stream<String?>? recipientUidChanges,
     bool directReservationReads = false,
+    Future<List<Reservation>> Function(String uid)? directReservationReader,
   }) : _apiBaseUrl = apiBaseUrl,
        _http = httpClient ?? http.Client(),
        _idTokenProvider = idTokenProvider,
        _currentRecipientUid = currentRecipientUid,
        _recipientUidChanges = recipientUidChanges,
-       _directReservationReads = directReservationReads;
+       _directReservationReads = directReservationReads,
+       _directReservationReader = directReservationReader;
 
   final FirebaseFirestore _firestore;
   final String _apiBaseUrl;
@@ -37,6 +39,7 @@ class FirestoreSurplusRepository
   final String? Function()? _currentRecipientUid;
   final Stream<String?>? _recipientUidChanges;
   final bool _directReservationReads;
+  final Future<List<Reservation>> Function(String uid)? _directReservationReader;
   final Map<String, Reservation> _reservationCache = {};
   String? _cacheOwner;
   List<Reservation>? _recipientSnapshot;
@@ -405,6 +408,15 @@ class FirestoreSurplusRepository
     return pending;
   }
 
+  Future<List<Reservation>> _queryRecipientReservations(String claimerUid) async {
+    final snapshot = await _reservationsRef
+        .where('claimerUid', isEqualTo: claimerUid)
+        .get(const GetOptions(source: Source.server));
+    return snapshot.docs
+        .map((doc) => Reservation.fromMap(doc.data(), id: doc.id))
+        .toList();
+  }
+
   Future<List<Reservation>> _readRecipientReservations(String claimerUid) async {
     if (_directReservationReads) {
       // The authenticated Firebase UID is authoritative, never a local fallback
@@ -413,17 +425,12 @@ class FirestoreSurplusRepository
         throw const PermissionDeniedException('Recipient identity unavailable.');
       }
       try {
-        final snapshot = await _reservationsRef
-            .where('claimerUid', isEqualTo: claimerUid)
-            .get(const GetOptions(source: Source.server))
-            .timeout(_recipientReadTimeout);
-        final reservations = snapshot.docs.map((doc) {
-          final reservation = Reservation.fromMap(doc.data(), id: doc.id);
-          if (reservation.claimerUid != claimerUid) {
-            throw const PermissionDeniedException('Unexpected reservation owner.');
-          }
-          return reservation;
-        }).toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        final read = _directReservationReader ?? _queryRecipientReservations;
+        final reservations = (await read(claimerUid).timeout(_recipientReadTimeout)).toList();
+        if (reservations.any((reservation) => reservation.claimerUid != claimerUid)) {
+          throw const PermissionDeniedException('Unexpected reservation owner.');
+        }
+        reservations.sort((a, b) => b.createdAt.compareTo(a.createdAt));
         return reservations;
       } on FirebaseException catch (error) {
         if (error.code == 'permission-denied' || error.code == 'unauthenticated') {
