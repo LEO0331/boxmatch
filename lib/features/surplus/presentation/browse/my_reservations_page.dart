@@ -92,11 +92,10 @@ class _MyReservationsPageState extends State<MyReservationsPage> {
       if (_cache != null && _cache!.currentRecipientUid != uid) {
         throw const PermissionDeniedException('Recipient identity changed.');
       }
+      final listingIds = reservations.map((r) => r.listingId).toSet();
       setState(() {
         _reservations = reservations;
-        _listingDetails.removeWhere(
-          (id, _) => !reservations.any((r) => r.listingId == id),
-        );
+        _listingDetails.removeWhere((id, _) => !listingIds.contains(id));
         _loading = false;
       });
       // Pickup codes and statuses are already available. Listing enrichment is

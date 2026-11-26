@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:boxmatch/app/app_scope.dart';
 import 'package:boxmatch/features/surplus/data/in_memory_surplus_repository.dart';
+import 'package:boxmatch/features/surplus/domain/listing.dart';
 import 'package:boxmatch/features/surplus/domain/listing_input.dart';
 import 'package:boxmatch/features/surplus/domain/listing_visibility.dart';
 import 'package:boxmatch/features/surplus/domain/reservation.dart';
@@ -49,10 +50,12 @@ Future<void> _pumpPage(
 }
 
 class _ThrowingListRepository extends InMemorySurplusRepository {
+  int calls = 0;
   @override
   Future<List<Reservation>> listRecipientReservations({
     required String claimerUid,
   }) async {
+    calls++;
     throw const ValidationException('List failed for test.');
   }
 }
@@ -65,6 +68,17 @@ class _PendingListRepository extends InMemorySurplusRepository {
     required String claimerUid,
   }) async {
     return completer.future;
+  }
+}
+
+class _SlowListingRepository extends InMemorySurplusRepository {
+  final pending = Completer<Listing?>();
+  int listingReads = 0;
+
+  @override
+  Stream<Listing?> watchListing(String listingId) {
+    listingReads++;
+    return pending.future.asStream();
   }
 }
 
@@ -165,9 +179,10 @@ void main() {
     expect(find.byType(ConstrainedBox), findsWidgets);
     expect(find.byType(Card), findsWidgets);
     repo.completer.complete(const <Reservation>[]);
+    await tester.pumpAndSettle();
   });
 
-  testWidgets('shows error view and warmup hint after retry fails', (
+  testWidgets('non-transient list error is not retried by the page', (
     tester,
   ) async {
     final repo = _ThrowingListRepository();
@@ -183,10 +198,40 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Unable to load'), findsOneWidget);
+    expect(repo.calls, 1);
     expect(
       find.textContaining('Service may still be warming up'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('pickup codes render before slow listing details and shared listing is read once', (tester) async {
+    final repo = _SlowListingRepository();
+    final now = DateTime.now();
+    final listing = await repo.createListing(
+      _input(now, itemType: 'Lunchbox', displayName: 'Acme'),
+    );
+    final first = await repo.reserveListing(
+      listingId: listing.listingId,
+      claimerUid: 'test-user',
+      qty: 1,
+      disclaimerAccepted: true,
+    );
+    final second = await repo.reserveListing(
+      listingId: listing.listingId,
+      claimerUid: 'test-user',
+      qty: 1,
+      disclaimerAccepted: true,
+    );
+    await _pumpPage(tester, repo: repo);
+    expect(find.textContaining('Code: ${first.pickupCode}'), findsWidgets);
+    expect(find.textContaining('Code: ${second.pickupCode}'), findsWidgets);
+    expect(repo.listingReads, 1);
+    await tester.pump(const Duration(seconds: 6));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Code: ${first.pickupCode}'), findsWidgets);
+    repo.pending.complete(null);
+    await tester.pumpAndSettle();
   });
 
   testWidgets('cancel reservation error shows snackbar', (tester) async {

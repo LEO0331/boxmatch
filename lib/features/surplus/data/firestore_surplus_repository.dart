@@ -389,6 +389,12 @@ class FirestoreSurplusRepository
         }
       }
       return reservations;
+    }).catchError((Object error, StackTrace stackTrace) {
+      if (generation == _recipientGeneration && _cacheOwner == claimerUid) {
+        _recipientSnapshot = null;
+        _snapshotAt = null;
+      }
+      Error.throwWithStackTrace(error, stackTrace);
     }).whenComplete(() {
       if (identical(_recipientPending, pending)) _recipientPending = null;
     });

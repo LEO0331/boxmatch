@@ -308,11 +308,11 @@ seed input and run `npm run seed:verified`; missing ownership remains unverified
 The web client initializes anonymous Firebase identity before creating a listing.
 Enterprise edit links remain bearer capabilities, now carried in URL fragments.
 
-On `npm start`, an idempotent migration completes before the HTTP listener opens.
+On the first `npm start` without a valid version-1 completion marker, an idempotent migration completes before the HTTP listener opens. Subsequent startups read only the server-owned `schema_migrations/listing_privacy_v1` marker. A failed scan never publishes completion.
 It moves listing credentials/enterprise keys into the server-only `listing_private`
 collection, removes public copies, and clears legacy unowned verification/reputation
 badges. Existing edit tokens remain valid. Startup fails if migration cannot finish.
-The standalone equivalent is `node ../scripts/migrate_listing_privacy.js` from
+The standalone command always forces a full rescan and refreshes the marker. Run it after any rollback to an older writer or external legacy import, before restarting the current server. Use `node ../scripts/migrate_listing_privacy.js` from
 `server/`, with the documented Admin environment credentials. Coordinate rollout
 so old server instances no longer write legacy public fields.
 
