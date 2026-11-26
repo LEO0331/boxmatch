@@ -35,12 +35,19 @@ jobs:
       - name: Build web
         env:
           BOXMATCH_API_BASE_URL: ${{ secrets.BOXMATCH_API_BASE_URL }}
+          BOXMATCH_ENABLE_TELEMETRY: ${{ vars.BOXMATCH_ENABLE_TELEMETRY || 'false' }}
         run: |
+          TELEMETRY_ENABLED=false
+          if [ "$BOXMATCH_ENABLE_TELEMETRY" = "true" ]; then
+            TELEMETRY_ENABLED=true
+          fi
           if [ -n "$BOXMATCH_API_BASE_URL" ]; then
             flutter build web --release --base-href /boxmatch/ \
-              --dart-define=BOXMATCH_API_BASE_URL="$BOXMATCH_API_BASE_URL"
+              --dart-define=BOXMATCH_API_BASE_URL="$BOXMATCH_API_BASE_URL" \
+              --dart-define=BOXMATCH_ENABLE_TELEMETRY="$TELEMETRY_ENABLED"
           else
-            flutter build web --release --base-href /boxmatch/
+            flutter build web --release --base-href /boxmatch/ \
+              --dart-define=BOXMATCH_ENABLE_TELEMETRY="$TELEMETRY_ENABLED"
           fi
 
       - name: Setup Pages

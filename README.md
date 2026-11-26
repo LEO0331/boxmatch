@@ -62,6 +62,10 @@ privacy-conscious traffic classification and behavioral risk signals. Phase 1 is
 observation-only and disabled by default; it cannot observe static GitHub Pages
 traffic or direct Firestore reads.
 
+Optional [traffic analytics](docs/TRAFFIC_ANALYTICS.md) adds privacy-aware web page
+views, local country/ASN enrichment, and bounded daily operational aggregates.
+Phase 2 remains disabled by default and does not track unique visitors or sessions.
+
 Set your API URL when building/running Flutter:
 
 ```bash

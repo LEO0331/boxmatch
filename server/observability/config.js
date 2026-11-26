@@ -18,8 +18,29 @@ function readConfig(env = process.env) {
     intelligenceMaxEntries: boundedInteger(env.REQUEST_INTELLIGENCE_MAX_ENTRIES, 10000, 1, 10000),
     botVerificationTimeoutMs: boundedInteger(env.BOT_VERIFICATION_TIMEOUT_MS, 2000, 100, 10000),
     botVerificationCacheMaxEntries: boundedInteger(env.BOT_VERIFICATION_CACHE_MAX_ENTRIES, 1000, 1, 10000),
-    botVerificationCacheTtlMs: boundedInteger(env.BOT_VERIFICATION_CACHE_TTL_MS, 3600000, 1000, 86400000)
+    botVerificationCacheTtlMs: boundedInteger(env.BOT_VERIFICATION_CACHE_TTL_MS, 3600000, 1000, 86400000),
+    enableFrontendTelemetry: env.ENABLE_FRONTEND_TELEMETRY === 'true',
+    enableGeoEnrichment: env.ENABLE_GEO_ENRICHMENT === 'true',
+    enableTrafficAggregation: env.ENABLE_TRAFFIC_AGGREGATION === 'true',
+    trafficFlushIntervalMs: boundedInteger(env.TRAFFIC_FLUSH_INTERVAL_MS, 300000, 60000, 3600000),
+    trafficRetentionDays: boundedInteger(env.TRAFFIC_RETENTION_DAYS, 90, 7, 365),
+    trafficMaxPendingDays: boundedInteger(env.TRAFFIC_MAX_PENDING_DAYS, 3, 1, 7),
+    trafficMaxAsnBuckets: boundedInteger(env.TRAFFIC_MAX_ASN_BUCKETS, 100, 1, 100),
+    trafficMaxCountryBuckets: boundedInteger(env.TRAFFIC_MAX_COUNTRY_BUCKETS, 100, 1, 250),
+    trafficWriteBudgetPerDay: boundedInteger(env.TRAFFIC_WRITE_BUDGET_PER_DAY, 600, 2, 1000),
+    telemetryMaxBodyBytes: boundedInteger(env.TELEMETRY_MAX_BODY_BYTES, 2048, 256, 2048),
+    telemetryRateLimitPerMinute: boundedInteger(env.TELEMETRY_RATE_LIMIT_PER_MINUTE, 20, 1, 100),
+    telemetryGlobalRateLimitPerMinute: boundedInteger(env.TELEMETRY_GLOBAL_RATE_LIMIT_PER_MINUTE, 300, 1, 1000),
+    geoCountryDbPath: localPath(env.GEO_COUNTRY_DB_PATH),
+    geoAsnDbPath: localPath(env.GEO_ASN_DB_PATH),
+    geoCacheMaxEntries: boundedInteger(env.GEO_CACHE_MAX_ENTRIES, 2000, 1, 10000),
+    geoCacheTtlMs: boundedInteger(env.GEO_CACHE_TTL_MS, 3600000, 1000, 86400000)
   });
 }
 
-module.exports = { readConfig };
+function localPath(value) {
+  return typeof value === 'string' && value.length <= 4096 && value.trim() &&
+    !/[\x00-\x1f]/.test(value) && !value.includes('://') ? value.trim() : null;
+}
+
+module.exports = { readConfig, boundedInteger };

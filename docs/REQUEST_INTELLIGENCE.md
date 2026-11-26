@@ -8,6 +8,13 @@ Both feature switches default to `false`.
 **Scope:** only requests reaching the Express API are visible. Static-only
 crawling of GitHub Pages and direct Firestore reads are outside this system.
 
+[Phase 2 traffic analytics](TRAFFIC_ANALYTICS.md) optionally adds frontend page-view
+ingestion, local country/ASN enrichment and daily aggregate persistence. Its flags
+are independent and disabled by default. The telemetry transport is excluded from
+business API counts and behavioral request counters; a page view is a separate
+semantic observation, not another API request or a unique visitor. Phase 1's logging,
+authorization and rate-limit behavior remain the baseline when Phase 2 is disabled.
+
 ## Architecture and request lifecycle
 
 The reusable modules under `server/observability/` contain configuration parsing,

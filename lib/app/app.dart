@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -25,7 +27,16 @@ class _BoxmatchAppState extends State<BoxmatchApp> {
     _router = buildRouter();
     _router.routerDelegate.addListener(_syncSeoMeta);
     widget.dependencies.localeController.addListener(_syncSeoMeta);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _syncSeoMeta());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _syncSeoMeta();
+      unawaited(
+        widget.dependencies.visitTracker?.trackInitial(
+          _currentRouterUri(),
+          usingFirebase: widget.dependencies.usingFirebase,
+        ),
+      );
+    });
   }
 
   @override

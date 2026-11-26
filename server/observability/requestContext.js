@@ -58,7 +58,7 @@ function createRequestIntelligence(config, dependencies = {}) {
   const scorer = dependencies.scorer || createRiskScorer(config);
   const verifier = dependencies.verifier || createBotVerifier(config);
   return {
-    capture(req) {
+    capture(req, options = {}) {
       const network = resolveNetwork(req, config.ipHmacSecret);
       const rawAgent = headerValue(req.headers?.['user-agent'], 1024);
       const suspiciousPath = classifySuspiciousPath(req.originalUrl || req.url || '');
@@ -68,20 +68,28 @@ function createRequestIntelligence(config, dependencies = {}) {
         headerValue(req.headers?.origin, 2048) && headerValue(req.headers?.['access-control-request-method'], 32)
       );
       // Schedule verification immediately, but never await it on the API path.
-      verifier.check(client.claimedBot, network);
+      if (!options.skipVerification) verifier.check(client.claimedBot, network);
       return ({ route, method, status }) => {
-        const verificationStatus = verifier.check(client.claimedBot, network);
+        const verificationStatus = options.skipVerification
+          ? (client.claimedBot ? 'unverified' : 'not_applicable')
+          : verifier.check(client.claimedBot, network);
         const risk = scorer.evaluate({
           fingerprint: network.ipFingerprint,
           identityConfidence: network.identityConfidence,
           method, route, status, userAgentPresent: Boolean(rawAgent),
-          suspiciousPath, verificationStatus, preflight,
+          suspiciousPath, verificationStatus, preflight: preflight || options.skipBehavior,
           healthCheck: route === '/health'
         });
+        let location = {};
+        if (!options.skipGeo && config.enableGeoEnrichment && dependencies.geoResolver) {
+          try { location = dependencies.geoResolver.lookup(network); }
+          catch (_) { location = { geoStatus: 'unavailable' }; }
+        }
         return {
           network: {
             ipFingerprint: network.ipFingerprint,
-            identityConfidence: network.identityConfidence
+            identityConfidence: network.identityConfidence,
+            ...location
           },
           source,
           client: {

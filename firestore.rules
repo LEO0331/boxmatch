@@ -30,6 +30,14 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /traffic_daily/{dayKey} {
+      allow read, write: if false;
+    }
+
+    match /traffic_flushes/{flushId} {
+      allow read, write: if false;
+    }
+
     match /abuse_signals/{signalId} {
       // Abuse signals are server-side only.
       allow create: if false;

@@ -29,3 +29,9 @@ services:
         value: "false"
       - key: ENABLE_BOT_VERIFICATION
         value: "false"
+      - key: ENABLE_FRONTEND_TELEMETRY
+        value: "false"
+      - key: ENABLE_GEO_ENRICHMENT
+        value: "false"
+      - key: ENABLE_TRAFFIC_AGGREGATION
+        value: "false"
